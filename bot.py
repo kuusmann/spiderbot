@@ -137,7 +137,7 @@ def scan_once():
 async def scanner_loop(app):
     while True:
         try:
-            total, found = await app.bot_data["loop"].run_in_executor(None, scan_once)
+            total, found = await asyncio.get_running_loop().run_in_executor(app.bot_data["executor"], scan_once)
             log.info("Scan complete: %s Solana pairs, %s momentum candidates", total, found)
         except Exception as e:
             global last_error
@@ -147,7 +147,7 @@ async def scanner_loop(app):
 
 async def post_init(app):
     import asyncio
-    app.bot_data["loop"] = __import__("concurrent.futures").futures.ThreadPoolExecutor(max_workers=1)
+    app.bot_data["executor"] = __import__("concurrent.futures").futures.ThreadPoolExecutor(max_workers=1)
     app.create_task(scanner_loop(app))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
