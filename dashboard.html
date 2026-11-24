@@ -253,6 +253,50 @@ body.meme-desk main.desk .agent{width:clamp(160px,17vw,230px)}
 @media(max-width:900px){body.meme-desk main.desk .tokens{grid-template-columns:repeat(3,minmax(0,1fr))}body.meme-desk main.desk .lower{grid-template-columns:1fr 1fr}}
 @media(max-width:580px){body.meme-desk main.desk .tokens{grid-template-columns:repeat(2,minmax(0,1fr))}body.meme-desk main.desk .lower{grid-template-columns:1fr}}
 
+
+/* janobot light graphite / soft daylight theme */
+body.meme-desk{background:radial-gradient(ellipse at 50% -12%,#e8f1f7 0,#dce6ee 48%,#d2dde6 100%)!important;color:#172b3a!important}
+body.meme-desk .desk{color:#172b3a}
+body.meme-desk .topbar{background:linear-gradient(135deg,#ffffff,#edf4f8);border-color:#c5d3dd;box-shadow:0 8px 26px #34495b16}
+body.meme-desk .brand h1,body.meme-desk .panelhead b{color:#183246}
+body.meme-desk .brand small,body.meme-desk .panelhead small{color:#667e90}
+body.meme-desk .balance small{color:#657d8e}body.meme-desk .balance b{color:#183246}
+body.meme-desk .ticker{background:#f4f8fb;border-color:#c9d7e1;color:#536c80;box-shadow:0 3px 12px #34495b0b}
+body.meme-desk .panel{background:linear-gradient(145deg,#ffffff,#f0f5f8);border-color:#c8d6df;box-shadow:0 8px 24px #33495b13}
+body.meme-desk .command{background:linear-gradient(145deg,#f8fcff,#e9f2f7)}
+body.meme-desk .command-stage{background:radial-gradient(ellipse at 50% 50%,#e0edf4 0,#eff5f8 62%,#e7eff4 100%);border-radius:8px}
+body.meme-desk .wires path{stroke:#9cb5c5}
+body.meme-desk .wires .dataflow{stroke:#28a982;filter:drop-shadow(0 0 4px #40c69a)}
+body.meme-desk .core{background:radial-gradient(circle,#d7eee7,#f7fbfc 70%);border-color:#8cb9a9;box-shadow:0 0 0 10px #8eb9a322,0 0 35px #45b98a22}
+body.meme-desk .core-logo{color:#1e6955;text-shadow:0 0 12px #80d8b8}
+body.meme-desk .core b{color:#193d36}body.meme-desk .core small{color:#678b7e}
+body.meme-desk .core strong{color:#18865e}
+body.meme-desk .agent{background:linear-gradient(135deg,#ffffff,#edf4f8);border-color:#c5d5df;box-shadow:0 5px 16px #263f5218}
+body.meme-desk .agent b{color:#19364b}body.meme-desk .agent small{color:#6b8294}body.meme-desk .agent em{color:#61798b}body.meme-desk .agent span{color:#6a8295}
+body.meme-desk .agent.active,body.meme-desk .agent.working{background:linear-gradient(135deg,#f4fff9,#e7f6ef);border-color:#7fc5a7;box-shadow:0 0 16px #3edba01c}
+body.meme-desk .agent.blocked{background:linear-gradient(135deg,#fff8f8,#f8e9ec)}
+body.meme-desk .agent.limited{background:linear-gradient(135deg,#fffaf0,#f8f0df)}
+body.meme-desk .token{background:linear-gradient(180deg,#ffffff,#f0f5f8);border-color:#cad7e0;box-shadow:0 3px 12px #34495b0b}
+body.meme-desk .token h3,body.meme-desk .token .price{color:#1b3448}
+body.meme-desk .tokentop,body.meme-desk .stats,body.meme-desk .trades{color:#637c8e}
+body.meme-desk .stats b{color:#2c4b60}
+body.meme-desk .trades{border-color:#d9e3e9}
+body.meme-desk .wallet-total b{color:#1a374b}
+body.meme-desk .wallet-total small,body.meme-desk .walletfoot{color:#667e90}
+body.meme-desk .walletfoot{border-color:#d8e2e8}body.meme-desk .walletfoot b{color:#1a374b}
+body.meme-desk .row{border-color:#d9e3e9;color:#29465a}
+body.meme-desk .flow-numbers small,body.meme-desk .flowbars label,body.meme-desk #flow-note{color:#61798c}
+body.meme-desk .flowbars>div>div{background:#dce6ec}
+body.meme-desk .logrow{border-color:#dbe4ea;color:#385469}
+body.meme-desk .logrow time{color:#6d8496}
+body.meme-desk .empty{color:#6b8192}
+body.meme-desk .panelfoot{border-color:#d5e0e7;color:#627b8e}
+body.meme-desk footer{color:#62798b}
+body.meme-desk .live{background:#e7f7ef;border-color:#a9d9c2;color:#14764e}
+body.meme-desk .ticker em{color:#98641c}
+body.meme-desk .chart-placeholder,body.meme-desk .nochart{color:#71899b}
+@media(prefers-color-scheme:dark){body.meme-desk{color-scheme:light}}
+
 </style></head><body class="meme-desk"><main class="desk">
 <header class="topbar"><div class="brand"><div class="brandmark">◉</div><div><h1>janobot</h1><small>SOLANA · LIVE SIGNAL INTELLIGENCE · PAPER EXECUTION</small></div></div><div class="balance"><small>PORTFOLIO BALANCE</small><b id="total">€1,000.00</b><span id="pnl">+€0.00 REALIZED</span></div><div id="live" class="live"><i></i> CONNECTING</div></header>
 <div class="ticker"><b>● SYSTEM LIVE</b><span id="scanmeta">WAITING FOR MARKET DATA</span><span id="clock">--:--:--</span><em>PAPER MODE</em></div>
