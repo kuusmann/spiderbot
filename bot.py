@@ -86,7 +86,7 @@ def update_agent(key, status, task, result, symbol=None, checks=None, decision=N
     agent_history.append({"agent":row["name"], "status":status, "message":f"{task}: {result}", "time":row["updated"], "symbol":symbol})
     del agent_history[:-60]
 state_lock = threading.RLock()
-state = {"cash": STARTING_BALANCE, "starting_balance": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0, "price_history": {}, "volume_history": {}, "holder_history": {}, "stopped_tokens": {}, "entry_count": 0, "day_start_equity": STARTING_BALANCE, "session_halted": False, "session_halt_reason": ""}
+state = {"cash": STARTING_BALANCE, "starting_balance": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0, "price_history": {}, "volume_history": {}, "holder_history": {}, "stopped_tokens": {}, "entry_count": 0, "day_start_equity": STARTING_BALANCE, "session_halted": False, "session_halt_reason": "", "signal_log": []}
 persistence_ok = False
 persistence_error = "state not loaded"
 
@@ -129,7 +129,7 @@ def load_state():
             "price_history": {}, "volume_history": {}, "holder_history": {},
             "stopped_tokens": {}, "entry_count": 0, "daily_count": 0,
             "day": "", "day_start_equity": STARTING_BALANCE,
-            "session_halted": False, "session_halt_reason": ""
+            "session_halted": False, "session_halt_reason": "", "signal_log": []
         }.items():
             state.setdefault(key, default)
 
@@ -619,6 +619,7 @@ def scan_once():
         }
         if not passed:
             blocked += 1
+            candidate["_entry_blockers"] = [str(report.get("reason","RugCheck blocked"))]
             add_event(f"RugCheck SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {report.get('reason','risk')}")
             continue
         basic_ok, reasons = strict_safety_check(candidate, report)
@@ -631,6 +632,7 @@ def scan_once():
         holder_ok, holder_reason = _holder_growth_ok(address, report, cache_time)
         if not holder_ok:
             blocked += 1
+            candidate["_entry_blockers"] = [holder_reason]
             add_event(f"holder growth SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {holder_reason}")
             continue
         metrics = candidate.get("marketMetrics") or candidate.get("onchainMetrics") or candidate.get("metrics") or {}
@@ -642,6 +644,42 @@ def scan_once():
         safe_candidates.append(candidate)
 
     safe_candidates.sort(key=lambda p: float(p.get("_rank_score") or 0), reverse=True)
+    safe_addresses = {(p.get("baseToken") or {}).get("address") for p in safe_candidates}
+    checked_addresses = {(p.get("baseToken") or {}).get("address") for p in local_candidates[:20]}
+    signal_rows = []
+    for candidate in local_candidates:
+        address = (candidate.get("baseToken") or {}).get("address")
+        tx = (candidate.get("txns") or {}).get("m5") or {}
+        metrics = candidate.get("marketMetrics") or candidate.get("onchainMetrics") or candidate.get("metrics") or {}
+        if address not in checked_addresses:
+            blockers = ["not risk-checked: outside top-20 scan limit"]
+        else:
+            blockers = candidate.get("_entry_blockers") or ([] if address in safe_addresses else ["not qualified"])
+        signal_rows.append({
+            "time": datetime.now(timezone.utc).isoformat(),
+            "address": address,
+            "symbol": (candidate.get("baseToken") or {}).get("symbol","?"),
+            "price_usd": float(candidate.get("priceUsd") or 0),
+            "market_cap_usd": float(candidate.get("marketCap") or candidate.get("fdv") or 0),
+            "liquidity_usd": float((candidate.get("liquidity") or {}).get("usd") or 0),
+            "pool_age_minutes": (candidate.get("_momentum") or {}).get("pool_age_minutes"),
+            "volume_5m_usd": float((candidate.get("volume") or {}).get("m5") or 0),
+            "volume_multiple": (candidate.get("_momentum") or {}).get("volume_multiple"),
+            "buys_5m": int(tx.get("buys") or 0),
+            "sells_5m": int(tx.get("sells") or 0),
+            "unique_buyers_5m": _number_from_sources([candidate,metrics],["uniqueBuyers5m","unique_buyers_5m","buyersUnique5m"]),
+            "unique_sellers_5m": _number_from_sources([candidate,metrics],["uniqueSellers5m","unique_sellers_5m","sellersUnique5m"]),
+            "single_wallet_volume_pct": _number_from_sources([candidate,metrics],["largestWalletVolumePct5m","largest_wallet_volume_pct_5m","topWalletVolumeShare5m"]),
+            "price_gain_10m_pct": (candidate.get("_momentum") or {}).get("price_gain_10m_pct"),
+            "breakout": True,
+            "rank_score": candidate.get("_rank_score"),
+            "qualified": address in safe_addresses,
+            "blockers": blockers,
+            "outcome": "open" if address in state.get("positions",{}) else "not-entered"
+        })
+    with state_lock:
+        state.setdefault("signal_log", []).extend(signal_rows)
+        del state["signal_log"][:-1500]
     buy_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("buys") or 0) for p in local_candidates)
     sell_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("sells") or 0) for p in local_candidates)
     update_agent("taju","active" if local_candidates else "waiting","Hindab ostu- ja müügisurvet",
@@ -735,7 +773,8 @@ def scan_once():
                 state["trades"].append({
                     "symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],"exit":execution_price,
                     "pnl":realized,"pnl_pct":pnl_pct,"closed_at":datetime.now(timezone.utc).isoformat(),
-                    "reason":reason,"partial":partial
+                    "reason":reason,"partial":partial,"strategy":pos.get("strategy"),
+                    "runner":bool(pos.get("runner")),"entry_metrics":pos.get("entry_metrics",{})
                 })
                 if partial:
                     pos["quantity"] -= quantity
@@ -771,7 +810,9 @@ def scan_once():
                 state["cash"] += proceeds - SIM_TX_FEE_EUR
                 state["trades"].append({"symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],"exit":execution_price,
                     "pnl":realized,"pnl_pct":price/float(pos["entry_price"])-1,"closed_at":datetime.now(timezone.utc).isoformat(),
-                    "reason":state.get("session_halt_reason"),"partial":False})
+                    "reason":state.get("session_halt_reason"),"partial":False,
+                    "strategy":pos.get("strategy"),"runner":bool(pos.get("runner")),
+                    "entry_metrics":pos.get("entry_metrics",{})})
                 del state["positions"][address]
                 add_event(f"session exit {pos['symbol']} | {realized:+.2f} EUR")
 
@@ -807,7 +848,16 @@ def scan_once():
                     "runner_peak_price":float(candidate["priceUsd"]),"score":candidate.get("_rank_score",0),
                     "liquidity_usd":float((candidate.get("liquidity") or {}).get("usd") or 0),
                     "market_cap":float(candidate.get("marketCap") or candidate.get("fdv") or 0),
-                    "sim_slippage_pct":SIM_SLIPPAGE_PCT*100
+                    "sim_slippage_pct":SIM_SLIPPAGE_PCT*100,
+                    "entry_metrics":{
+                        "rank_score":candidate.get("_rank_score"),
+                        "volume_multiple":(candidate.get("_momentum") or {}).get("volume_multiple"),
+                        "unique_buyers_5m":candidate.get("_unique_buyer_seller_ratio"),
+                        "pool_age_minutes":(candidate.get("_momentum") or {}).get("pool_age_minutes"),
+                        "price_gain_10m_pct":(candidate.get("_momentum") or {}).get("price_gain_10m_pct"),
+                        "liquidity_usd":float((candidate.get("liquidity") or {}).get("usd") or 0),
+                        "market_cap_usd":float(candidate.get("marketCap") or candidate.get("fdv") or 0)
+                    }
                 }
                 state["daily_count"] += 1
                 bought_symbol = symbol
@@ -1007,7 +1057,8 @@ def live_data():
         pos_value = sum(p["quantity"]*p.get("last_price",p["entry_price"]) for p in state["positions"].values())
         payload = {"cash":state["cash"],"positions_value":pos_value,"total":state["cash"]+pos_value,
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
-            "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
+            "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],
+            "candidates":last_candidates,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
             "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
     return jsonify(payload)
