@@ -183,7 +183,7 @@ def scan_once():
         else:
             add_event(f"rugcheck blokeeris {candidate.get('baseToken', {}).get('symbol', '?')}: {report.get('status')} | {report.get('reason', 'risk')}")
     eligible = rug_eligible
-    rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else "checking"
+    rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else ("unavailable" if rugcheck_stats["errors"] else "checking")
     with state_lock:
         history_map = state.setdefault("price_history", {})
         for candidate in eligible[:20]:
