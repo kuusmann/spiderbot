@@ -57,7 +57,7 @@ WALLET_POLL_SECONDS = 60
 MAX_TRACKED_WALLETS = 25
 wallet_tracker = {"status":"waiting","updated":None,"wallets":[],"signals":[],"errors":[],"discovery_errors":[],"poll_errors":[],"last_discovery":None}
 wallet_tracker_lock = threading.RLock()
-wallet_seen_signatures = {}
+wallet_seen_signatures = {}\nwallet_poll_cursor = 0
 
 JUPITER_BASE = "https://api.jup.ag/swap/v2"
 SOL_MINT = "So11111111111111111111111111111111111111112"
@@ -391,21 +391,39 @@ def classify_wallet_swap(wallet, tx):
     return None
 
 def poll_tracked_wallets():
+    global wallet_poll_cursor
     if not HELIUS_API_KEY:
         with wallet_tracker_lock:
             wallet_tracker.update({"status":"needs HELIUS_API_KEY","updated":datetime.now(timezone.utc).isoformat()})
         return
-    with wallet_tracker_lock: wallets=list(wallet_tracker.get("wallets",[]))
+    with wallet_tracker_lock:
+        wallets=list(wallet_tracker.get("wallets",[]))
+    if not wallets:
+        return
+    # Stay under Helius rate limits: poll at most five wallets per minute, rotating through the list.
+    start=wallet_poll_cursor % len(wallets)
+    batch=[wallets[(start+i)%len(wallets)] for i in range(min(5,len(wallets)))]
+    wallet_poll_cursor=(start+len(batch)) % max(1,len(wallets))
     signals,errors=[],[]
-    for wallet in wallets[:MAX_TRACKED_WALLETS]:
+    for wallet in batch:
         address=wallet.get("address")
         if not address: continue
         try:
             response=requests.get(f"https://api-mainnet.helius-rpc.com/v0/addresses/{address}/transactions",
-                params={"api-key":HELIUS_API_KEY,"limit":20},timeout=15)
-            response.raise_for_status(); rows=response.json()
+                params={"api-key":HELIUS_API_KEY,"limit":10},timeout=15)
+            if response.status_code==429:
+                retry_after=response.headers.get("Retry-After","60")
+                errors.append(address[:8]+": Helius rate limited (429), retry-after="+retry_after)
+                continue
+            response.raise_for_status()
+            rows=response.json()
             if not isinstance(rows,list): continue
-            seen=wallet_seen_signatures.setdefault(address,set())
+            seen=wallet_seen_signatures.get(address)
+            if seen is None:
+                # Establish a baseline on first contact; do not copy old historical swaps.
+                wallet_seen_signatures[address]={x.get("signature") for x in rows if x.get("signature")}
+                wallet["status"]="tracking"
+                continue
             for tx in reversed(rows):
                 sig=tx.get("signature")
                 if not sig or sig in seen: continue
@@ -418,16 +436,19 @@ def poll_tracked_wallets():
                 signals.append({"wallet":address,"label":wallet.get("label",address[:8]),"side":side,"mint":mint,"amount":amount,"signature":sig,"time":datetime.fromtimestamp(float(tx.get("timestamp") or time.time()),timezone.utc).isoformat()})
                 wallet["last_seen"]=signals[-1]["time"]; wallet["last_action"]=side+" "+mint[:8]
             wallet["status"]="tracking"
-        except Exception as exc: errors.append(address[:8]+": "+str(exc)[:100])
+        except Exception as exc:
+            errors.append(address[:8]+": "+str(exc)[:140])
+        time.sleep(0.25)
     if signals:
-        with wallet_tracker_lock: wallet_tracker["signals"]=(signals+wallet_tracker.get("signals",[]))[:100]
+        with wallet_tracker_lock:
+            wallet_tracker["signals"]=(signals+wallet_tracker.get("signals",[]))[:100]
         for x in signals: add_event(f"WALLET COPY SIGNAL {x['side']} {x['mint'][:8]} · {x['label']}")
     with wallet_tracker_lock:
         discovery_errors=wallet_tracker.get("discovery_errors",[])
         wallet_tracker.update({"updated":datetime.now(timezone.utc).isoformat(),"poll_errors":errors,"errors":discovery_errors+errors})
         for error in errors: log.warning("Wallet activity poll error: %s", error)
-        if not HELIUS_API_KEY: wallet_tracker["status"]="needs HELIUS_API_KEY"
-        elif discovery_errors: wallet_tracker["status"]="source error"
+        if discovery_errors: wallet_tracker["status"]="source error"
+        elif errors and not wallet_tracker.get("wallets"): wallet_tracker["status"]="source error"
         elif wallet_tracker.get("wallets"): wallet_tracker["status"]="live"
         else: wallet_tracker["status"]="no wallets found"
 
@@ -604,6 +625,80 @@ def score_candidate(pair):
 def dynamic_trade_size(equity, daily_pnl):
     fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)
     return round(max(0.0, min(float(equity) * fraction, float(state.get("cash", 0)) - SIM_TX_FEE_EUR)), 2)
+
+def apply_wallet_copy_signals(safe_candidates, pairs):
+    """Paper-copy only fresh swaps from tracked wallets, gated by existing token safety checks."""
+    now=time.time()
+    candidates={(p.get("baseToken") or {}).get("address"):p for p in safe_candidates}
+    pair_prices={(p.get("baseToken") or {}).get("address"):float(p.get("priceUsd") or 0) for p in pairs}
+    with wallet_tracker_lock:
+        pending=list(wallet_tracker.get("signals",[]))
+    consumed=set(state.setdefault("wallet_copy_consumed",[]))
+    changed=False
+    for signal in reversed(pending):
+        sig=signal.get("signature")
+        if not sig or sig in consumed: continue
+        try:
+            age=now-datetime.fromisoformat(signal.get("time","").replace("Z","+00:00")).timestamp()
+        except Exception:
+            age=999999
+        if age>180:
+            consumed.add(sig); changed=True; continue
+        mint=signal.get("mint")
+        side=signal.get("side")
+        wallet=signal.get("wallet")
+        if side=="BUY":
+            candidate=candidates.get(mint)
+            if not candidate:
+                continue
+            if paused or state.get("session_halted") or mint in state["positions"] or len(state["positions"])>=MAX_POSITIONS or state["daily_count"]>=MAX_TRADES_PER_DAY:
+                consumed.add(sig); changed=True; continue
+            price=float(candidate.get("priceUsd") or 0)
+            if price<=0: continue
+            equity=float(state["cash"])+sum(float(p.get("quantity",0))*float(p.get("last_price",p.get("entry_price",0))) for p in state["positions"].values())
+            size=round(min(equity*POSITION_RISK_PCT*0.5,float(state["cash"])-SIM_TX_FEE_EUR),2)
+            if size<=1: continue
+            execution=simulated_fill("buy",price)
+            if execution is None: continue
+            symbol=(candidate.get("baseToken") or {}).get("symbol","?")
+            state["cash"]-=size+SIM_TX_FEE_EUR
+            state["entry_count"]=int(state.get("entry_count",0))+1
+            state["daily_count"]=int(state.get("daily_count",0))+1
+            state["positions"][mint]={"symbol":symbol,"entry_price":execution,"last_price":price,"peak_price":price,
+                "quantity":size/execution,"cost":size+SIM_TX_FEE_EUR,"opened_at":datetime.now(timezone.utc).isoformat(),
+                "opened_ts":now,"strategy":"wallet-copy","runner":False,"runner_half_sold":False,
+                "runner_peak_price":price,"copy_wallet":wallet,"copy_wallet_label":signal.get("label","tracked wallet"),
+                "sim_slippage_pct":SIM_SLIPPAGE_PCT*100,"liquidity_usd":float((candidate.get("liquidity") or {}).get("usd") or 0),
+                "market_cap":float(candidate.get("marketCap") or candidate.get("fdv") or 0),
+                "entry_metrics":{"source":"wallet-copy","wallet":wallet,"wallet_label":signal.get("label"),"wallet_signal":sig}}
+            add_event(f"PAPER COPY BUY {symbol} from {signal.get('label')} | EUR {size:.2f}")
+            consumed.add(sig); changed=True
+        elif side=="SELL":
+            pos=state["positions"].get(mint)
+            if not pos or pos.get("strategy")!="wallet-copy" or pos.get("copy_wallet")!=wallet:
+                consumed.add(sig); changed=True; continue
+            price=pair_prices.get(mint,0)
+            if price<=0:
+                try:
+                    extra=get_json(f"{DEX}/token-pairs/v1/solana/{mint}")
+                    matches=[x for x in extra if (x.get("baseToken") or {}).get("address")==mint and float(x.get("priceUsd") or 0)>0] if isinstance(extra,list) else []
+                    if matches: price=float(max(matches,key=lambda x:float((x.get("liquidity") or {}).get("usd") or 0))["priceUsd"])
+                except Exception: price=0
+            if price<=0: continue
+            execution=simulated_fill("sell",price)
+            if execution is None: continue
+            proceeds=float(pos["quantity"])*execution
+            realized=proceeds-float(pos["cost"])-SIM_TX_FEE_EUR
+            state["cash"]+=proceeds-SIM_TX_FEE_EUR
+            state["trades"].append({"symbol":pos["symbol"],"address":mint,"entry":pos["entry_price"],"exit":execution,
+                "pnl":realized,"pnl_pct":price/float(pos["entry_price"])-1,"closed_at":datetime.now(timezone.utc).isoformat(),
+                "reason":"tracked wallet sell","partial":False,"strategy":"wallet-copy","runner":False,
+                "entry_metrics":pos.get("entry_metrics",{})})
+            del state["positions"][mint]
+            add_event(f"PAPER COPY SELL {pos['symbol']} on {signal.get('label')} exit | {realized:+.2f} EUR")
+            consumed.add(sig); changed=True
+    state["wallet_copy_consumed"]=list(consumed)[-1000:]
+    if changed: save_state()
 
 def scan_once():
     global last_scan, last_error, last_pair_count, last_candidate_count, last_candidates
@@ -881,7 +976,7 @@ def scan_once():
                 del state["positions"][address]
                 add_event(f"session exit {pos['symbol']} | {realized:+.2f} EUR")
 
-        bought_symbol = None
+        apply_wallet_copy_signals(safe_candidates, pairs)\n\n        bought_symbol = None
         if not paused and not state.get("session_halted") and len(state["positions"]) < MAX_POSITIONS and state["daily_count"] < MAX_TRADES_PER_DAY:
             for candidate in safe_candidates:
                 address = (candidate.get("baseToken") or {}).get("address")
