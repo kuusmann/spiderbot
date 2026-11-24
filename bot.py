@@ -391,16 +391,16 @@ async def post_init(app):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ALLOWED_USER_ID:
-        await send_text(update, f"SPIDER BOT online. Telegram ID: {update.effective_user.id}.")
+        await send_text(update, f"janobot online. Telegram ID: {update.effective_user.id}.")
     elif authorized(update):
-        await send_text(update, "🕷️ SPIDER BOT aktiivne! Paper-konto €1000. Kuus analüüsiagenti töötavad turuandmetega.\nKäsud: /status /portfolio /trades /scan /pause /resume")
+        await send_text(update, "🕷️ janobot aktiivne! Paper-konto €1000. Kuus analüüsiagenti töötavad turuandmetega.\nKäsud: /status /portfolio /trades /scan /pause /resume")
     else: await reply_denied(update)
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
     with state_lock:
         value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
-        msg = (f"🕷️ spider bot status\ntelegram: connected\nmootor: {'pausil' if paused else 'töötab'}\n"
+        msg = (f"🕷️ janobot status\ntelegram: connected\nmootor: {'pausil' if paused else 'töötab'}\n"
         f"režiim: paper demo\nvaba raha: €{state['cash']:.2f}\npositsioonide väärtus: €{value:.2f}\n"
         f"avatud positsioonid: {len(state['positions'])}\nstop loss: {STOP_LOSS*100:.0f}% | kasumisiht: +{TAKE_PROFIT*100:.0f}% | skann: {SCAN_SECONDS}s | min turuväärtus: $10k\npaarid: {last_pair_count} | signaalid: {last_candidate_count}\n"
         f"viimane skann: {last_scan}\nskanneri viga: {last_error or 'puudub'}\npäris tehingud: väljas")
@@ -438,7 +438,7 @@ web = Flask(__name__)
 def check_auth(auth):
     return auth and auth.username == "spider" and DASHBOARD_PASSWORD and auth.password == DASHBOARD_PASSWORD
 def auth_required():
-    return Response("Autentimine vajalik", 401, {"WWW-Authenticate": 'Basic realm="SPIDER BOT"'})
+    return Response("Autentimine vajalik", 401, {"WWW-Authenticate": 'Basic realm="janobot"'})
 @web.get("/health")
 def health():
     return jsonify({"ok": True, "service": "spiderbot"})
@@ -473,7 +473,7 @@ def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
     for cmd, fn in [("start",start),("status",status),("portfolio",portfolio),("trades",trades),("scan",scan),("pause",pause_cmd),("resume",resume_cmd)]:
         app.add_handler(CommandHandler(cmd,fn))
-    add_event("spider bot käivitus; paper demo")
+    add_event("janobot käivitus; paper demo")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
