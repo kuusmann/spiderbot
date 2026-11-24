@@ -406,6 +406,18 @@ body.meme-desk main.desk .a6{right:0!important}
 @keyframes hero-float{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-7px) rotate(4deg)}}
 @keyframes hero-action{from{transform:translateY(1px) scale(.96) rotate(-8deg)}to{transform:translateY(-5px) scale(1.08) rotate(8deg)}}
 @media(prefers-reduced-motion:reduce){.hero-avatar{animation:none!important}}
+
+.strategy-panel{border-color:#45617a!important}
+.strategy-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.strategy-cell{padding:10px;border:1px solid #3a4d5d;border-radius:5px;background:#182630}
+.strategy-cell small{display:block;color:#9aabba;font:8px ui-monospace,monospace;letter-spacing:.7px}
+.strategy-cell b{display:block;color:#f1f5f8;font:700 15px ui-monospace,monospace;margin-top:5px}
+.strategy-group{margin-top:14px;color:#dce5ee;font:800 9px ui-monospace,monospace;letter-spacing:1px}
+.strategy-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.strategy-tags span{padding:6px 8px;border:1px solid #3b5364;border-radius:4px;background:#1a2a35;color:#c4d2dd;font:8px ui-monospace,monospace}
+.strategy-note{margin-top:12px;padding:9px 11px;border-left:3px solid #e6b76a;background:#30291e;color:#e6c98e;font:9px/1.5 ui-monospace,monospace}
+@media(max-width:900px){.strategy-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:580px){.strategy-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.strategy-cell b{font-size:13px}}
 </style></head><body class="meme-desk"><main class="desk">
 <header class="topbar"><div class="brand"><div class="brandmark">◉</div><div><h1>janobot</h1><small>SOLANA · LIVE SIGNAL INTELLIGENCE · PAPER EXECUTION</small></div></div><div class="balance"><small>PORTFOLIO BALANCE</small><b id="total">€1,000.00</b><span id="pnl">+€0.00 REALIZED</span></div><div id="live" class="live"><i></i> CONNECTING</div></header>
 <div class="ticker"><b>● SYSTEM LIVE</b><span id="scanmeta">WAITING FOR MARKET DATA</span><span id="clock">--:--:--</span><em>PAPER MODE</em><strong id="persistence" class="storage-pill">storage checking</strong></div>
@@ -420,6 +432,28 @@ body.meme-desk main.desk .a6{right:0!important}
 <article class="agent a6 hero-agent" data-agent="jano"><b>🟠 JANO</b><small>COMMANDER / FINAL DECISION</small><em>WAITING</em><span>BUY / WAIT / SKIP</span><i class="hero-avatar jano-hero" aria-hidden="true">👑</i></article>
 </div><div class="panelfoot"><span id="network-action">Awaiting first scanner cycle…</span><span id="lastscan">LAST SCAN —</span></div></section>
 <section class="panel"><div class="panelhead"><div><b>02 / LIVE TOKEN CHARTS</b><small>REAL DISCOVERED TOKENS · 5 MINUTE PRICE CHANGE · DEX PAIR DATA</small></div><span id="token-count">0 MARKETS</span></div><div id="tokens" class="tokens"><div class="empty">Waiting for eligible tokens…</div></div></section>
+
+<section class="panel strategy-panel"><div class="panelhead"><div><b>03 / ACTIVE STRATEGY · FULL SEND</b><small>CONFIGURED PAPER RULES · NO LIVE WALLET EXECUTION</small></div><span>STRATEGY ON</span></div>
+<div class="strategy-grid">
+<div class="strategy-cell"><small>STARTING BANKROLL</small><b>€1,000</b></div>
+<div class="strategy-cell"><small>POSITION SIZE</small><b>7.5% EQUITY</b></div>
+<div class="strategy-cell"><small>MAX OPEN POSITIONS</small><b>3</b></div>
+<div class="strategy-cell"><small>SCALP TAKE PROFIT</small><b>+30%</b></div>
+<div class="strategy-cell"><small>STOP LOSS</small><b>−15%</b></div>
+<div class="strategy-cell"><small>TIME STOP</small><b>4 MIN</b></div>
+<div class="strategy-cell"><small>RUNNER FREQUENCY</small><b>EVERY 3RD ENTRY</b></div>
+<div class="strategy-cell"><small>RUNNER PARTIAL TP</small><b>HALF AT +50%</b></div>
+<div class="strategy-cell"><small>RUNNER TRAIL</small><b>25% GIVEBACK</b></div>
+<div class="strategy-cell"><small>DAILY LOSS LIMIT</small><b>−€200</b></div>
+<div class="strategy-cell"><small>REDUCE SIZE AFTER</small><b>+€500 · HALF SIZE</b></div>
+<div class="strategy-cell"><small>DAILY PROFIT STOP</small><b>+€2,000</b></div>
+</div>
+<div class="strategy-group">TOKEN FILTERS</div>
+<div class="strategy-tags"><span>POOL AGE 5–60 MIN</span><span>MCAP $100K–$2M</span><span>LIQUIDITY ≥$25K</span><span>VOLUME SPIKE ≥3×</span><span>BUYERS / SELLERS ≥1.5×</span><span>TOP 10 HOLDERS &lt;30%</span><span>DEV HOLDING &lt;5%</span><span>LP LOCK ≥95%</span><span>BUNDLE CLUSTER ≤20%</span><span>ONE WALLET VOLUME ≤20%</span><span>HOLDER GROWTH ≥5%</span><span>SKIP +100% / 10 MIN</span><span>SELL IMPACT ≤1%</span></div>
+<div class="strategy-group">PAPER EXECUTION MODEL</div>
+<div class="strategy-tags"><span>3.5% SLIPPAGE EACH SIDE</span><span>300 MS SIMULATED LATENCY</span><span>12% SIMULATED FAILED TX</span><span>LIVE TRADING DISABLED</span></div>
+<div class="strategy-note">Safety checks fail closed: if required holder, developer, liquidity-lock or buyer/seller data is missing, the token is blocked. Pool age is currently used as a proxy for post-migration age.</div>
+</section>
 <section class="panel news-panel"><div class="panelhead"><div><b>03 / MARKET NEWS FEED</b><small>FREE PUBLIC RSS · COINDESK + COINTELEGRAPH · NOT TOKEN-SPECIFIC SIGNALS</small></div><span id="news-status">CONNECTING</span></div><div id="news-items" class="news-items"><div class="empty">Loading public headlines…</div></div><div class="panelfoot"><span>Public RSS headlines · verify information independently</span><span id="news-updated">LAST UPDATE —</span></div></section>
 <section class="lower">
 <article class="panel orderbook"><div class="panelhead"><div><b>03 / BUY-SELL ORDER FLOW</b><small>AGGREGATED 5M TRANSACTIONS</small></div><span id="ratio">B/S —</span></div><div class="flow-numbers"><b id="buys">0</b><small>BUYS</small><b id="sells">0</b><small>SELLS</small></div><div class="flowbars"><div><label>BUY PRESSURE</label><div><i id="buybar"></i></div></div><div><label>SELL PRESSURE</label><div><i id="sellbar"></i></div></div></div><p id="flow-note">Waiting for transaction data.</p></article>
