@@ -366,7 +366,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ALLOWED_USER_ID:
         await send_text(update, f"SPIDER BOT online. Telegram ID: {update.effective_user.id}.")
     elif authorized(update):
-        await send_text(update, "🕷️ spider bot aktiivne! paper demo €50.\nkäsud: /status /portfolio /trades /scan /pause /resume")
+        await send_text(update, "🕷️ SPIDER BOT aktiivne! Paper-konto €1000. Kuus analüüsiagenti töötavad turuandmetega.\nKäsud: /status /portfolio /trades /scan /pause /resume")
     else: await reply_denied(update)
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -375,7 +375,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
         msg = (f"🕷️ spider bot status\ntelegram: connected\nmootor: {'pausil' if paused else 'töötab'}\n"
         f"režiim: paper demo\nvaba raha: €{state['cash']:.2f}\npositsioonide väärtus: €{value:.2f}\n"
-        f"avatud positsioonid: {len(state['positions'])}\nstop loss: -5% | skann: 15s | min turuväärtus: $10k\npaarid: {last_pair_count} | signaalid: {last_candidate_count}\n"
+        f"avatud positsioonid: {len(state['positions'])}\nstop loss: {STOP_LOSS*100:.0f}% | kasumisiht: +{TAKE_PROFIT*100:.0f}% | skann: {SCAN_SECONDS}s | min turuväärtus: $10k\npaarid: {last_pair_count} | signaalid: {last_candidate_count}\n"
         f"viimane skann: {last_scan}\nskanneri viga: {last_error or 'puudub'}\npäris tehingud: väljas")
     await send_text(update, msg)
 
