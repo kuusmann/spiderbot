@@ -20,10 +20,12 @@ MAX_TRADES_PER_DAY = 30
 TAKE_PROFIT = 0.50
 STOP_LOSS = -0.10
 MIN_LIQUIDITY_USD = 10000
-MIN_M5_VOLUME_USD = 1000
-MIN_M5_CHANGE = 2.0
-MAX_AGE_HOURS = 48
+MIN_M5_VOLUME_USD = 3000
+MIN_M5_CHANGE = 5.0
+MAX_AGE_HOURS = 24
 SCAN_SECONDS = 10
+MAX_MARKET_CAP_USD = 300000
+MIN_BUY_SELL_RATIO = 1.2
 DEX = "https://api.dexscreener.com"
 paused = False
 last_scan = "not yet"
@@ -106,8 +108,14 @@ def scan_once():
             age = pair_age_hours(p)
             price = float(p.get("priceUsd") or 0)
             address = (p.get("baseToken") or {}).get("address")
+            tx5 = (p.get("txns") or {}).get("m5") or {}
+            buys = int(tx5.get("buys") or 0)
+            sells = int(tx5.get("sells") or 0)
+            buy_sell_ratio = buys / max(sells, 1)
             if not address or price <= 0: continue
-            if market_cap >= 10000 and liq >= MIN_LIQUIDITY_USD and vol >= MIN_M5_VOLUME_USD and change >= MIN_M5_CHANGE and age <= MAX_AGE_HOURS:
+            if (10000 <= market_cap <= MAX_MARKET_CAP_USD and liq >= MIN_LIQUIDITY_USD
+                and vol >= MIN_M5_VOLUME_USD and change >= MIN_M5_CHANGE
+                and buys >= 5 and buy_sell_ratio >= MIN_BUY_SELL_RATIO and age <= MAX_AGE_HOURS):
                 eligible.append(p)
         except (TypeError, ValueError):
             continue
@@ -163,6 +171,8 @@ def scan_once():
             "price": p.get("priceUsd"),
             "change5m": (p.get("priceChange") or {}).get("m5",0),
             "volume5m": (p.get("volume") or {}).get("m5",0),
+            "buys5m": ((p.get("txns") or {}).get("m5") or {}).get("buys",0),
+            "sells5m": ((p.get("txns") or {}).get("m5") or {}).get("sells",0),
             "liquidity": (p.get("liquidity") or {}).get("usd",0),
             "marketCap": p.get("marketCap") or p.get("fdv") or 0,
             "history": state.setdefault("price_history", {}).setdefault((p.get("baseToken") or {}).get("address",""), [])[-60:],
@@ -261,7 +271,7 @@ def live_data():
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"stop_loss_pct":STOP_LOSS*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
+            "signal_count":last_candidate_count,"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
     return jsonify(payload)
 
 def run_web():
