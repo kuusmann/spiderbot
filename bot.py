@@ -41,6 +41,23 @@ last_pair_count = 0
 last_candidate_count = 0
 last_candidates = []
 events = []
+AGENT_DEFS = {
+    "uljas": {"name":"ULJAS","role":"Võimaluste otsija","goal":"Leiab uusi Solana tokenipaare ja filtreerib turuaktiivsuse järgi.","color":"#ffd23f"},
+    "teataja": {"name":"TEATAJA","role":"Uudiste ja katalüsaatorite uurija","goal":"Kontrollib projekti avalikke linke; reaalajas uudisvoog vajab eraldi allikat.","color":"#ff5964"},
+    "taju": {"name":"TAJU","role":"Turu meeleolu analüütik","goal":"Hindab ostu- ja müügisurvet päris tehinguandmete põhjal.","color":"#c66bff"},
+    "teras": {"name":"TERAS","role":"Graafikute analüütik","goal":"Hindab hinnamomenti, volüümi ja võimalikku sisenemiskohta.","color":"#3298ff"},
+    "valvur": {"name":"VALVUR","role":"Riskikaitsja","goal":"Kontrollib RugChecki riske ja blokeerib ohtlikud või kontrollimata tokenid.","color":"#31d98b"},
+    "jano": {"name":"JANO","role":"Peajuht ja otsustaja","goal":"Koondab tõendid ning lubab ainult reeglitele vastava paper-tehingu.","color":"#ff9b35"},
+}
+agents = {key: {"id":key, **meta, "status":"ootel", "task":"Ootan esimest skanni", "result":"Andmeid pole veel kogutud", "updated":None, "checks":0, "last_symbol":None} for key,meta in AGENT_DEFS.items()}
+agent_history = []
+def update_agent(key, status, task, result, symbol=None, checks=None):
+    row = agents[key]
+    row.update({"status":status, "task":task, "result":str(result)[:260],
+                "updated":datetime.now(timezone.utc).isoformat(), "last_symbol":symbol})
+    if checks is not None: row["checks"] = int(checks)
+    agent_history.append({"agent":row["name"], "status":status, "message":f"{task}: {result}", "time":row["updated"], "symbol":symbol})
+    del agent_history[:-60]
 state_lock = threading.RLock()
 state = {"cash": STARTING_BALANCE, "starting_balance": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0, "price_history": {}}
 
@@ -218,7 +235,9 @@ def pair_age_hours(pair):
 
 def scan_once():
     global last_scan, last_error, last_pair_count, last_candidate_count, last_candidates
+    update_agent("uljas","working","Otsib uusi Solana paare","Laeb DEX Screeneri ja GeckoTerminali vooge")
     pairs = discover_candidates()
+    update_agent("uljas","active","Skaneeris turgu",f"{len(pairs)} paari; {len(discovery_cache.get('addresses',[]))} tokeniaadressi",checks=len(pairs))
     eligible = []
     for p in pairs:
         try:
@@ -242,6 +261,10 @@ def scan_once():
         except (TypeError, ValueError):
             continue
     eligible.sort(key=lambda p: float((p.get("volume") or {}).get("m5") or 0), reverse=True)
+    update_agent("taju","active","Hindab ostu- ja müügisurvet",f"{len(eligible)} kandidaati läbis mahu, hinnaliikumise ja ostu/müügi suhte filtrid",checks=len(pairs))
+    update_agent("teras","active","Analüüsib hinnamomenti ja volüümi",f"{len(eligible)} kandidaati vastab tehnilistele sisenemisfiltritele",checks=len(pairs))
+    linked = sum(1 for p in eligible if (p.get("info") or {}).get("websites") or (p.get("info") or {}).get("socials"))
+    update_agent("teataja","limited","Kontrollib projekti avalikke linke",f"{linked}/{len(eligible)} kandidaadil on DEX-is veebileht või sotsiaalprofiil; uudisvoog pole ühendatud",checks=len(pairs))
     rug_eligible = []
     for candidate in eligible[:20]:
         token_address = (candidate.get("baseToken") or {}).get("address")
@@ -252,6 +275,8 @@ def scan_once():
         else:
             add_event(f"rugcheck blokeeris {candidate.get('baseToken', {}).get('symbol', '?')}: {report.get('status')} | {report.get('reason', 'risk')}")
     eligible = rug_eligible
+    update_agent("valvur","active" if eligible else "blocked","Kontrollib tokenite riskiraporteid",f"RugCheck läbis {len(eligible)} kandidaati; riskikontrolli tulemuseta tokenid blokeeritakse",checks=len(eligible))
+    update_agent("jano","active" if eligible else "waiting","Koondab agentide tulemused",f"{len(eligible)} tokenit vastab praegustele BUY-filtritele; uudistevoog on veel ühendamata",checks=len(pairs))
     rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else ("unavailable" if rugcheck_stats["errors"] else "checking")
     with state_lock:
         history_map = state.setdefault("price_history", {})
@@ -406,7 +431,7 @@ def live_data():
         pos_value = sum(p["quantity"]*p.get("last_price",p["entry_price"]) for p in state["positions"].values())
         payload = {"cash":state["cash"],"positions_value":pos_value,"total":state["cash"]+pos_value,
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
-            "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],
+            "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
             "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
     return jsonify(payload)
