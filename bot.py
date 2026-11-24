@@ -57,7 +57,8 @@ WALLET_POLL_SECONDS = 60
 MAX_TRACKED_WALLETS = 25
 wallet_tracker = {"status":"waiting","updated":None,"wallets":[],"signals":[],"errors":[],"discovery_errors":[],"poll_errors":[],"last_discovery":None}
 wallet_tracker_lock = threading.RLock()
-wallet_seen_signatures = {}\nwallet_poll_cursor = 0
+wallet_seen_signatures = {}
+wallet_poll_cursor = 0
 
 JUPITER_BASE = "https://api.jup.ag/swap/v2"
 SOL_MINT = "So11111111111111111111111111111111111111112"
