@@ -391,18 +391,33 @@ body.meme-desk main.desk .a6{right:0!important}
 .token-news{margin-top:8px;padding:7px;border-left:2px solid #d5a85b;background:#2b2b29;color:#e9c47c;font:7px ui-monospace,monospace}
 .token-news a{display:block;margin-top:4px;color:#dce8f0;text-decoration:none;font:8px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 .token-news a:hover{color:#78e2b6}.token-news.muted-news{border-left-color:#435665;background:#1c2a34;color:#91a4b3}
+
+/* Hero crew: animated character avatars */
+.agent.hero-agent{padding-right:48px;min-height:72px;align-content:center}
+.agent.hero-agent b{font-size:10px;letter-spacing:.65px;white-space:nowrap}
+.agent.hero-agent small{font-size:6.5px}
+.hero-avatar{position:absolute;right:10px;bottom:9px;width:32px;height:38px;display:grid;place-items:center;font-style:normal;font-size:27px;line-height:1;filter:drop-shadow(0 3px 5px #000b);transform-origin:50% 85%;animation:hero-float 2.4s ease-in-out infinite}
+.hero-agent:nth-of-type(2) .hero-avatar{animation-delay:-.4s}
+.hero-agent:nth-of-type(3) .hero-avatar{animation-delay:-.8s}
+.hero-agent:nth-of-type(4) .hero-avatar{animation-delay:-1.2s}
+.hero-agent:nth-of-type(5) .hero-avatar{animation-delay:-1.6s}
+.hero-agent:nth-of-type(6) .hero-avatar{animation-delay:-2s}
+.hero-agent.working .hero-avatar,.hero-agent.active .hero-avatar{animation:hero-action .55s ease-in-out infinite alternate}
+@keyframes hero-float{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-7px) rotate(4deg)}}
+@keyframes hero-action{from{transform:translateY(1px) scale(.96) rotate(-8deg)}to{transform:translateY(-5px) scale(1.08) rotate(8deg)}}
+@media(prefers-reduced-motion:reduce){.hero-avatar{animation:none!important}}
 </style></head><body class="meme-desk"><main class="desk">
 <header class="topbar"><div class="brand"><div class="brandmark">◉</div><div><h1>janobot</h1><small>SOLANA · LIVE SIGNAL INTELLIGENCE · PAPER EXECUTION</small></div></div><div class="balance"><small>PORTFOLIO BALANCE</small><b id="total">€1,000.00</b><span id="pnl">+€0.00 REALIZED</span></div><div id="live" class="live"><i></i> CONNECTING</div></header>
 <div class="ticker"><b>● SYSTEM LIVE</b><span id="scanmeta">WAITING FOR MARKET DATA</span><span id="clock">--:--:--</span><em>PAPER MODE</em><strong id="persistence" class="storage-pill">storage checking</strong></div>
 <section class="panel command"><div class="panelhead"><div><b>01 / AGENT COMMAND NETWORK</b><small>6 AGENTS · ONE DECISION CORE · REAL SCANNER TELEMETRY</small></div><span id="online">0 / 6 ACTIVE</span></div>
 <div class="command-stage"><svg class="wires" viewBox="0 0 1000 500" preserveAspectRatio="none"><path d="M160 90L500 250L840 90M160 90L160 410L500 250L840 410L840 90M160 410L500 250L840 410"/><path class="dataflow" d="M160 90L500 250L840 90M160 90L160 410L500 250L840 410L840 90M160 410L500 250L840 410"/></svg>
 <div class="core"><div class="core-orbit"></div><div class="core-logo">◉</div><b>janobot</b><small>COMMAND CORE</small><strong id="decision">WAIT</strong></div>
-<article class="agent a1" data-agent="uljas"><b>🟡 ULJAS</b><small>OPPORTUNITY SCOUT</small><em>WAITING</em><span>0 PAIRS</span></article>
-<article class="agent a2" data-agent="teataja"><b>🟥 TEATAJA</b><small>PROJECT INTEL</small><em>LIMITED</em><span>PUBLIC LINKS</span></article>
-<article class="agent a3" data-agent="taju"><b>🟣 TAJU</b><small>BUY / SELL FLOW</small><em>WAITING</em><span>5M PRESSURE</span></article>
-<article class="agent a4" data-agent="teras"><b>🔵 TERAS</b><small>PRICE ACTION</small><em>WAITING</em><span>MOMENTUM</span></article>
-<article class="agent a5" data-agent="valvur"><b>🟢 VALVUR</b><small>RISK GATE</small><em>WAITING</em><span>RUGCHECK</span></article>
-<article class="agent a6" data-agent="jano"><b>🟠 JANO</b><small>DECISION MAKER</small><em>WAITING</em><span>BUY / WAIT / SKIP</span></article>
+<article class="agent a1 hero-agent" data-agent="uljas"><b>🟡 ULJAS</b><small>OPPORTUNITY SCOUT</small><em>WAITING</em><span>0 PAIRS</span><i class="hero-avatar spider-hero" aria-hidden="true">🕷️</i></article>
+<article class="agent a2 hero-agent" data-agent="teataja"><b>SHERLOCK HOLMES</b><small>INTELLIGENCE / DETECTIVE</small><em>LIMITED</em><span>PUBLIC LINKS</span><i class="hero-avatar detective-hero" aria-hidden="true">🕵️</i></article>
+<article class="agent a3 hero-agent" data-agent="taju"><b>THE FLASH</b><small>BUY / SELL FLOW</small><em>WAITING</em><span>5M PRESSURE</span><i class="hero-avatar flash-hero" aria-hidden="true">⚡</i></article>
+<article class="agent a4 hero-agent" data-agent="teras"><b>IRON MAN</b><small>PRICE ACTION / ANALYSIS</small><em>WAITING</em><span>MOMENTUM</span><i class="hero-avatar iron-hero" aria-hidden="true">🤖</i></article>
+<article class="agent a5 hero-agent" data-agent="valvur"><b>BATMAN</b><small>RISK / SECURITY</small><em>WAITING</em><span>RUGCHECK</span><i class="hero-avatar bat-hero" aria-hidden="true">🦇</i></article>
+<article class="agent a6 hero-agent" data-agent="jano"><b>🟠 JANO</b><small>COMMANDER / FINAL DECISION</small><em>WAITING</em><span>BUY / WAIT / SKIP</span><i class="hero-avatar jano-hero" aria-hidden="true">👑</i></article>
 </div><div class="panelfoot"><span id="network-action">Awaiting first scanner cycle…</span><span id="lastscan">LAST SCAN —</span></div></section>
 <section class="panel"><div class="panelhead"><div><b>02 / LIVE TOKEN CHARTS</b><small>REAL DISCOVERED TOKENS · 5 MINUTE PRICE CHANGE · DEX PAIR DATA</small></div><span id="token-count">0 MARKETS</span></div><div id="tokens" class="tokens"><div class="empty">Waiting for eligible tokens…</div></div></section>
 <section class="panel news-panel"><div class="panelhead"><div><b>03 / MARKET NEWS FEED</b><small>FREE PUBLIC RSS · COINDESK + COINTELEGRAPH · NOT TOKEN-SPECIFIC SIGNALS</small></div><span id="news-status">CONNECTING</span></div><div id="news-items" class="news-items"><div class="empty">Loading public headlines…</div></div><div class="panelfoot"><span>Public RSS headlines · verify information independently</span><span id="news-updated">LAST UPDATE —</span></div></section>
