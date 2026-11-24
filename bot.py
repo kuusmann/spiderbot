@@ -169,6 +169,219 @@ def save_state():
         log.exception("Could not save persistent portfolio: %s", e)
         raise
 
+def _number_from_sources(sources, names):
+    for source in sources:
+        if isinstance(source, dict):
+            for name in names:
+                value = source.get(name)
+                if value is not None:
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        pass
+    return None
+
+def daily_pnl_unlocked():
+    open_value = sum(float(p.get("quantity", 0)) * float(p.get("last_price", p.get("entry_price", 0))) * (1 - SIM_SLIPPAGE_PCT) for p in state.get("positions", {}).values())
+    equity = float(state.get("cash", 0)) + open_value - SIM_TX_FEE_EUR * len(state.get("positions", {}))
+    return equity - float(state.get("day_start_equity", STARTING_BALANCE))
+
+def update_market_snapshots(pairs):
+    now = time.time()
+    features = {}
+    with state_lock:
+        prices = state.setdefault("price_history", {})
+        volumes = state.setdefault("volume_history", {})
+        for pair in pairs:
+            address = (pair.get("baseToken") or {}).get("address")
+            try:
+                price = float(pair.get("priceUsd") or 0)
+                volume5 = float((pair.get("volume") or {}).get("m5") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not address or price <= 0:
+                continue
+            ph = prices.setdefault(address, [])
+            prior = [x for x in ph if now - float(x.get("t", 0)) <= 3600]
+            old_5m = [float(x["p"]) for x in prior if now - float(x["t"]) <= 300]
+            old_10m = [x for x in prior if 570 <= now - float(x["t"]) <= 720]
+            old_prices = [float(x["p"]) for x in prior]
+            observed_high = max(old_prices + [price])
+            gain_10m = None
+            if old_10m:
+                oldest = min(old_10m, key=lambda x: float(x["t"]))
+                if float(oldest.get("p") or 0) > 0:
+                    gain_10m = (price / float(oldest["p"]) - 1) * 100
+            vh = volumes.setdefault(address, [])
+            baseline = [float(x["v"]) for x in vh if 60 <= now - float(x.get("t", 0)) <= 900]
+            oldest_age = max([now - float(x.get("t", 0)) for x in vh] or [0])
+            multiple = volume5 / (sum(baseline) / len(baseline)) if len(baseline) >= 20 and oldest_age >= 840 and sum(baseline) > 0 else None
+            features[address] = {
+                "breakout": len(old_5m) >= 3 and price > max(old_5m),
+                "observed_high": observed_high,
+                "above_60pct_high": price >= observed_high * 0.60,
+                "gain_10m_pct": gain_10m,
+                "volume_multiple": multiple
+            }
+            ph.append({"t": now, "p": price})
+            vh.append({"t": now, "v": volume5})
+            del ph[:-420]
+            del vh[:-140]
+    return features
+
+def strict_safety_check(pair, report):
+    reasons = []
+    token_info = report.get("token") if isinstance(report.get("token"), dict) else {}
+    if "mintAuthority" not in token_info or token_info.get("mintAuthority") is not None:
+        reasons.append("mint authority not confirmed revoked")
+    if "freezeAuthority" not in token_info or token_info.get("freezeAuthority") is not None:
+        reasons.append("freeze authority not confirmed revoked")
+    lp_locked = _number_from_sources([report], ["lpLockedPct", "lp_locked_pct"])
+    if lp_locked is None or lp_locked < MIN_LP_LOCKED_PCT:
+        reasons.append("LP lock missing or below 95%")
+
+    markets, holders = report.get("markets"), report.get("topHolders")
+    clean_holders = []
+    if not isinstance(markets, list) or not isinstance(holders, list) or len(holders) < 10:
+        reasons.append("full market/top-holder report incomplete")
+    else:
+        pools = {str(pair.get("pairAddress") or "")}
+        for market in markets:
+            if not isinstance(market, dict):
+                continue
+            for key in ("pubkey", "address", "pairAddress", "marketId"):
+                if market.get(key):
+                    pools.add(str(market[key]))
+            lp = market.get("lp") if isinstance(market.get("lp"), dict) else {}
+            for key in ("address", "pubkey", "mint"):
+                if lp.get(key):
+                    pools.add(str(lp[key]))
+        for holder in holders:
+            if not isinstance(holder, dict) or holder.get("isPool") or holder.get("isBondingCurve"):
+                continue
+            addr = str(holder.get("owner") or holder.get("address") or "")
+            if addr in pools:
+                continue
+            pct = _number_from_sources([holder], ["pct", "percentage"])
+            if pct is None:
+                clean_holders = []
+                break
+            clean_holders.append((addr, pct))
+        if len(clean_holders) < 10:
+            reasons.append("top-holder percentages incomplete")
+        elif sum(x[1] for x in sorted(clean_holders, key=lambda x: x[1], reverse=True)[:10]) >= MAX_TOP10_HOLDERS_PCT:
+            reasons.append("top-10 holder share is 30% or higher")
+        creator = report.get("creator")
+        if isinstance(creator, dict):
+            creator = creator.get("address") or creator.get("owner")
+        creator = str(creator or "")
+        dev_pct = next((pct for addr, pct in clean_holders if creator and addr == creator), None)
+        if dev_pct is None:
+            dev_pct = _number_from_sources([report], ["creatorPct", "creator_pct"])
+        if dev_pct is None:
+            bal = _number_from_sources([report], ["creatorBalance", "creator_balance"])
+            supply = _number_from_sources([token_info], ["supply"])
+            if bal is not None and supply and supply > 0:
+                dev_pct = bal / supply * 100
+        if dev_pct is None:
+            reasons.append("developer wallet share unknown")
+        elif dev_pct >= MAX_DEV_HOLDER_PCT:
+            reasons.append("developer wallet holds 5% or more")
+
+    networks = report.get("insiderNetworks")
+    if networks is None:
+        reasons.append("bundled-launch/insider-network data missing")
+    else:
+        clusters = networks.get("clusters", networks.get("networks")) if isinstance(networks, dict) else networks
+        if not isinstance(clusters, list):
+            reasons.append("insider-network structure unknown")
+        else:
+            for cluster in clusters:
+                share = _number_from_sources([cluster], ["pct", "percentage", "combinedPct"])
+                if share is None:
+                    reasons.append("insider-network share unknown")
+                    break
+                if share > MAX_BUNDLE_CLUSTER_PCT:
+                    reasons.append("insider wallet cluster exceeds 20%")
+                    break
+
+    activity = report.get("creatorActivity") if isinstance(report.get("creatorActivity"), dict) else {}
+    dev_sells = _number_from_sources([report, activity], ["creatorSells15m", "creator_sells_15m", "devSells15m", "sells15m"])
+    sold_flag_present = any(k in report or k in activity for k in ("creatorSold15m", "creator_sold_15m"))
+    if dev_sells is None and not sold_flag_present:
+        reasons.append("developer recent-sell history missing")
+    elif dev_sells is not None and dev_sells > 0:
+        reasons.append("developer sold in the last 15m")
+    elif report.get("creatorSold15m", report.get("creator_sold_15m", activity.get("sold15m"))) is True:
+        reasons.append("developer sold in the last 15m")
+
+    metrics = pair.get("marketMetrics") or pair.get("onchainMetrics") or pair.get("metrics") or {}
+    buyers = _number_from_sources([pair, metrics], ["uniqueBuyers5m", "unique_buyers_5m", "buyersUnique5m"])
+    sellers = _number_from_sources([pair, metrics], ["uniqueSellers5m", "unique_sellers_5m", "sellersUnique5m"])
+    if buyers is None or sellers is None:
+        reasons.append("unique buyer/seller counts unavailable")
+    elif buyers / max(sellers, 1) < MIN_BUYER_SELLER_RATIO:
+        reasons.append("unique buyer/seller ratio below 1.5")
+    wallet_share = _number_from_sources([pair, metrics], ["largestWalletVolumePct5m", "largest_wallet_volume_pct_5m", "topWalletVolumeShare5m"])
+    if wallet_share is None:
+        reasons.append("single-wallet recent volume share unavailable")
+    elif wallet_share > MAX_SINGLE_WALLET_VOLUME_PCT:
+        reasons.append("one wallet exceeds 20% of recent volume")
+    return not reasons, reasons
+
+def _holder_growth_ok(address, report, observed_at):
+    count = _number_from_sources([report, report.get("token") or {}], ["totalHolders", "holderCount", "holdersCount", "total_holders"])
+    if count is None or count <= 0:
+        return False, "holder count missing"
+    with state_lock:
+        history = state.setdefault("holder_history", {}).setdefault(address, [])
+        if not any(abs(float(x.get("t", 0)) - observed_at) < 1 for x in history):
+            history.append({"t": observed_at, "count": count})
+            del history[:-12]
+        prior = [x for x in history if 840 <= observed_at - float(x.get("t", 0)) <= 1800]
+    if not prior:
+        return False, "15m holder baseline not collected yet"
+    base = min(prior, key=lambda x: abs((observed_at - float(x["t"])) - 900))
+    growth = (count / max(float(base["count"]), 1) - 1) * 100
+    return growth >= MIN_HOLDER_GROWTH_PCT, f"holder growth {growth:+.1f}%"
+
+def jupiter_sell_simulation(token_address, price_usd, notional_eur, report):
+    if not JUPITER_API_KEY:
+        return False, "JUPITER_API_KEY missing"
+    token_info = report.get("token") if isinstance(report.get("token"), dict) else {}
+    try:
+        decimals = int(token_info["decimals"])
+        amount = int((float(notional_eur) / max(float(price_usd), 1e-18)) * (10 ** decimals))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False, "token decimals/amount unavailable"
+    try:
+        response = requests.get(
+            f"{JUPITER_BASE}/order",
+            params={"inputMint": token_address, "outputMint": SOL_MINT, "amount": str(amount)},
+            headers={"x-api-key": JUPITER_API_KEY, "Accept": "application/json"},
+            timeout=10
+        )
+        response.raise_for_status()
+        quote = response.json()
+        out_amount = int(quote.get("outAmount") or 0)
+        route = quote.get("router") or quote.get("routePlan")
+        impact = quote.get("priceImpactPct", quote.get("priceImpact"))
+        if out_amount <= 0 or not route or impact is None:
+            return False, "sell quote incomplete (route/output/impact missing)"
+        impact_pct = abs(float(impact)) * (100 if abs(float(impact)) <= 1 else 1)
+        if impact_pct > MAX_SELL_PRICE_IMPACT_PCT:
+            return False, f"sell quote impact {impact_pct:.2f}%"
+        return True, f"Jupiter sell route ok; impact {impact_pct:.2f}%"
+    except Exception as exc:
+        return False, f"sell quote unavailable: {str(exc)[:120]}"
+
+def simulated_fill(side, market_price):
+    time.sleep(SIM_LATENCY_MS / 1000.0)
+    if random.random() < SIM_FAILED_TX_RATE:
+        return None
+    slippage = SIM_SLIPPAGE_PCT if side == "buy" else -SIM_SLIPPAGE_PCT
+    return float(market_price) * (1 + slippage)
+
 def authorized(update):
     return bool(ALLOWED_USER_ID) and str(update.effective_user.id) == ALLOWED_USER_ID
 
