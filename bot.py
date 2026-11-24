@@ -17,8 +17,8 @@ STARTING_BALANCE = 1000.0
 TRADE_SIZE = 20.0
 MAX_POSITIONS = 8
 MAX_TRADES_PER_DAY = 30
-TAKE_PROFIT = 0.50
-STOP_LOSS = -0.10
+TAKE_PROFIT = 1.00
+STOP_LOSS = -0.25
 MIN_LIQUIDITY_USD = 3000
 MIN_M5_VOLUME_USD = 3000
 MIN_M5_CHANGE = 5.0
@@ -460,7 +460,7 @@ def live_data():
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
+            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"take_profit_pct":TAKE_PROFIT*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
     return jsonify(payload)
 
 def run_web():
