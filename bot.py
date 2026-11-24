@@ -95,11 +95,22 @@ def add_event(message):
     del events[:-40]
     log.info(message)
 
+def _portfolio_equity_unlocked():
+    open_value = sum(
+        float(p.get("quantity", 0)) * float(p.get("last_price", p.get("entry_price", 0))) * (1 - SIM_SLIPPAGE_PCT)
+        for p in state.get("positions", {}).values()
+    )
+    return float(state.get("cash", 0)) + open_value - SIM_TX_FEE_EUR * len(state.get("positions", {}))
+
+def _tallinn_day():
+    return datetime.now(ZoneInfo("Europe/Tallinn")).date().isoformat()
+
 def load_state():
     global state, persistence_ok, persistence_error
     try:
         STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        if STATE_FILE.exists():
+        existed = STATE_FILE.exists()
+        if existed:
             data = json.loads(STATE_FILE.read_text())
             if not isinstance(data, dict) or "cash" not in data or "positions" not in data or "trades" not in data:
                 raise ValueError("state file is incomplete; refusing to reset portfolio")
@@ -108,14 +119,31 @@ def load_state():
             if previous_start < STARTING_BALANCE:
                 state["cash"] = float(state.get("cash", previous_start)) + (STARTING_BALANCE - previous_start)
                 state["starting_balance"] = STARTING_BALANCE
-                save_state()
-                add_event("virtuaalne algkapital suurendatud €1000-ni")
-            else:
-                persistence_ok = True
-                persistence_error = ""
-                add_event(f"portfell taastatud püsikettalt: {len(state['positions'])} avatud positsiooni")
+                add_event("virtuaalne algkapital korrigeeritud €1000-ni")
         else:
-            save_state()
+            state.update({"cash": STARTING_BALANCE, "starting_balance": STARTING_BALANCE, "positions": {}, "trades": []})
+
+        for key, default in {
+            "price_history": {}, "volume_history": {}, "holder_history": {},
+            "stopped_tokens": {}, "entry_count": 0, "daily_count": 0,
+            "day": "", "day_start_equity": STARTING_BALANCE,
+            "session_halted": False, "session_halt_reason": ""
+        }.items():
+            state.setdefault(key, default)
+
+        today = _tallinn_day()
+        if state.get("day") != today:
+            state["day"] = today
+            state["daily_count"] = 0
+            state["stopped_tokens"] = {}
+            state["session_halted"] = False
+            state["session_halt_reason"] = ""
+            state["day_start_equity"] = _portfolio_equity_unlocked()
+            add_event("uus Tallinna kauplemissessioon: päevased piirid lähtestatud")
+        save_state()
+        if existed:
+            add_event(f"portfell taastatud püsikettalt: {len(state['positions'])} avatud positsiooni")
+        else:
             add_event("uus paper-portfell loodud €1000 algkapitaliga")
     except Exception as e:
         persistence_ok = False
@@ -156,47 +184,47 @@ def get_json(url):
     return r.json()
 
 def rugcheck_token(address):
-    """Return (passed, report summary). Fail closed when RugCheck is unavailable."""
+    """Fetch a full RugCheck report. Unknown/missing security fields fail closed later."""
     global rugcheck_last_request
     now = time.time()
     cached = rugcheck_cache.get(address)
     if cached and now - cached["time"] < cached["ttl"]:
         return cached["passed"], cached["data"]
-    # Stay below the public API's documented free-tier request rate.
     delay = 0.42 - (time.monotonic() - rugcheck_last_request)
     if delay > 0:
         time.sleep(delay)
     try:
         response = requests.get(
-            f"{RUGCHECK_BASE}/v1/tokens/{address}/report/summary",
-            timeout=8,
-            headers={"Accept": "application/json", "User-Agent": "SPIDER-BOT-paper/1.0"},
+            f"{RUGCHECK_BASE}/v1/tokens/{address}/report",
+            timeout=10,
+            headers={"Accept": "application/json", "User-Agent": "janobot-paper/1.0"},
         )
         rugcheck_last_request = time.monotonic()
         response.raise_for_status()
         report = response.json()
-        if not isinstance(report, dict) or report.get("error") or report.get("score_normalised") is None:
-            raise ValueError("RugCheck returned an incomplete report")
-        score = float(report["score_normalised"])
+        if not isinstance(report, dict) or not isinstance(report.get("token"), dict):
+            raise ValueError("RugCheck full report missing token details")
+        score = report.get("score_normalised", report.get("score_normalized"))
+        if score is None:
+            raise ValueError("RugCheck normalized score missing")
+        score = float(score)
         risks = report.get("risks") or []
-        danger = [r for r in risks if str(r.get("level", "")).lower() in ("danger", "critical", "high")]
-        passed = score < RUGCHECK_MAX_SCORE and not danger
-        data = {
+        danger = [x for x in risks if str(x.get("level", "")).lower() in ("danger", "critical", "high")]
+        data = dict(report)
+        data.update({
             "score": score,
-            "raw_score": report.get("score"),
-            "lp_locked_pct": report.get("lpLockedPct"),
             "risk_count": len(risks),
             "danger_count": len(danger),
-            "risks": [{"name": r.get("name", ""), "level": r.get("level", ""), "description": r.get("description", "")} for r in risks[:5]],
-            "status": "passed" if passed else "blocked",
-            "reason": "risk score too high or danger finding" if not passed else "risk screen passed",
-        }
+            "status": "passed" if score < RUGCHECK_MAX_SCORE and not danger else "blocked",
+            "reason": "risk score/danger finding" if score >= RUGCHECK_MAX_SCORE or danger else "base risk score passed",
+        })
+        passed = score < RUGCHECK_MAX_SCORE and not danger
         rugcheck_cache[address] = {"time": now, "ttl": RUGCHECK_CACHE_TTL, "passed": passed, "data": data}
         rugcheck_stats["checked"] += 1
         rugcheck_stats["passed" if passed else "blocked"] += 1
         return passed, data
     except Exception as exc:
-        data = {"status": "unavailable", "reason": str(exc)[:160], "score": None, "risk_count": 0, "danger_count": 0, "risks": []}
+        data = {"status": "unavailable", "reason": str(exc)[:160], "score": None, "risk_count": 0, "danger_count": 0}
         rugcheck_cache[address] = {"time": now, "ttl": RUGCHECK_FAIL_TTL, "passed": False, "data": data}
         rugcheck_stats["errors"] += 1
         return False, data
