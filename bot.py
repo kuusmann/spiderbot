@@ -301,6 +301,27 @@ def scan_once():
     else:
         best_symbol, tech_result = None, "Ükski token ei ületanud praeguseid tehnilisi filtreid"
     update_agent("teras","active","Analüüsib hinnamomenti ja volüümi",tech_result,symbol=best_symbol,checks=len(pairs))
+    # Match headlines conservatively to candidate token names/symbols.
+    with news_lock:
+        available_news = list(news_cache.get("items") or [])
+    matched_news_total = 0
+    for candidate in eligible[:20]:
+        token = candidate.get("baseToken") or {}
+        symbol = str(token.get("symbol") or "").strip()
+        name = str(token.get("name") or "").strip()
+        terms = []
+        if len(name) >= 4:
+            terms.append(name)
+        if len(symbol) >= 5:
+            terms.append(symbol)
+        matches = []
+        for article in available_news:
+            haystack = (str(article.get("title") or "") + " " + str(article.get("description") or "")).lower()
+            if any(__import__("re").search(r"(?<![a-z0-9])" + __import__("re").escape(term.lower()) + r"(?![a-z0-9])", haystack) for term in terms):
+                matches.append({"title": article.get("title",""), "url": article.get("url",""),
+                                "source": article.get("source",""), "published": article.get("published","")})
+        candidate["_news_matches"] = matches[:3]
+        matched_news_total += len(matches)
     linked = 0
     x_links = 0
     tg_links = 0
@@ -318,11 +339,13 @@ def scan_once():
             tg_links += 1
         if any("reddit.com/" in u.lower() for u in urls):
             reddit_links += 1
-    teataja_status = "active" if linked else "limited"
+    matched_tokens = sum(1 for p in eligible[:20] if p.get("_news_matches"))
+    teataja_status = "active" if linked or available_news else "limited"
     teataja_result = (f"{linked}/{len(eligible)} kandidaadil projektilingid; "
-        f"X-profiile {x_links}, Telegrami linke {tg_links}, Redditi linke {reddit_links}. "
-        "X-i postitusi ei loeta (tasuline API); Redditi arutelusid ei loeta ilma ametliku tasuta API ligipääsuta.")
-    update_agent("teataja",teataja_status,"Kontrollib DEX-i projekti- ja kogukonnalinke",teataja_result,checks=len(pairs))
+        f"X-profiile {x_links}, Telegrami linke {tg_links}, Redditi linke {reddit_links}; "
+        f"uudisvoost {len(available_news)} pealkirja, tokeniga vasteid {matched_tokens}. "
+        "Vaste on nime/tickeri tekstiline kokkulangevus, mitte kinnitatud seos.")
+    update_agent("teataja",teataja_status,"Seob avalikud uudispealkirjad tokenikandidaatidega",teataja_result,checks=len(pairs))
     rug_eligible = []
     rug_blocked = 0
     rug_checked = 0
@@ -347,9 +370,10 @@ def scan_once():
     elif len(state.get("positions", {})) >= MAX_POSITIONS or state.get("cash", 0) < TRADE_SIZE or state.get("daily_count", 0) >= MAX_TRADES_PER_DAY:
         jano_status, verdict, decision_text = "blocked", "SKIP", "Portfelli või päevase kauplemise piirang ei luba uut positsiooni"
     else:
-        jano_status, verdict, decision_text = "active", "BUY", f"{len(pending_buys)} kandidaati läbis tehnilised ja RugCheck filtrid; demotehingu lubamine"
+        news_hits = sum(1 for p in pending_buys if p.get("_news_matches"))
+        jano_status, verdict, decision_text = "active", "BUY", f"{len(pending_buys)} kandidaati läbis tehnilised ja RugCheck filtrid; uudisevaste {news_hits}; demotehingu lubamine"
     decision_symbol = (pending_buys[0].get("baseToken") or {}).get("symbol") if pending_buys else None
-    update_agent("jano",jano_status,"Koondab agentide tulemused",f"{verdict}: {decision_text}; Teataja kontrollis projekti avalikke linke",symbol=decision_symbol,checks=len(pairs),decision=verdict)
+    update_agent("jano",jano_status,"Koondab agentide tulemused",f"{verdict}: {decision_text}; uudisevaste on lisakontekst, mitte ostufilter",symbol=decision_symbol,checks=len(pairs),decision=verdict)
     rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else ("unavailable" if rugcheck_stats["errors"] else "checking")
     with state_lock:
         if not persistence_ok:
@@ -420,7 +444,8 @@ def scan_once():
             "address": (p.get("baseToken") or {}).get("address",""),
             "url": p.get("url",""),
             "rugcheck": p.get("_rugcheck", {"status":"not_checked"}),
-            "sources": p.get("_discovery_sources", [])
+            "sources": p.get("_discovery_sources", []),
+            "news": p.get("_news_matches", [])
         } for p in eligible[:20]]
         last_pair_count, last_candidate_count = len(pairs), len(eligible)
         last_scan = datetime.now(timezone.utc).isoformat()
@@ -512,12 +537,13 @@ def refresh_news():
                 fields = {}
                 for child in list(item):
                     key = child.tag.rsplit("}", 1)[-1].lower()
-                    if key in ("title", "link", "pubdate", "published", "description"):
+                    if key in ("title", "link", "pubdate", "published", "description", "summary"):
                         fields[key] = "".join(child.itertext()).strip()
                 title = fields.get("title", "").strip()
                 link = fields.get("link", "").strip()
                 if title and link.startswith("https://"):
-                    items.append({"title": title[:220], "url": link, "source": source,
+                    items.append({"title": title[:220], "description": fields.get("description") or fields.get("summary") or "",
+                                  "url": link, "source": source,
                                   "published": fields.get("pubdate") or fields.get("published") or ""})
         except Exception as exc:
             errors.append(f"{source}: {str(exc)[:100]}")
