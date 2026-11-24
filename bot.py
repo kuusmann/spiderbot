@@ -14,18 +14,18 @@ ALLOWED_USER_ID = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 STATE_FILE = Path(os.environ.get("STATE_FILE", "/var/data/state.json"))
 STARTING_BALANCE = 1000.0
-TRADE_SIZE = 50.0
+MAX_TRADE_SIZE = 50.0
+MIN_TRADE_SIZE = 10.0
 MAX_POSITIONS = 8
 MAX_TRADES_PER_DAY = 30
-TAKE_PROFIT = 1.00
-STOP_LOSS = -0.25
+TAKE_PROFIT = 0.25
+STOP_LOSS = -0.12
+TRAIL_ACTIVATE = 0.08
+TRAIL_GIVEBACK = 0.06
 MIN_LIQUIDITY_USD = 3000
-MIN_M5_VOLUME_USD = 3000
-MIN_M5_CHANGE = 5.0
-MAX_AGE_HOURS = 24
+MIN_M5_VOLUME_USD = 1000
+MIN_SCORE = 55
 SCAN_SECONDS = 10
-MAX_MARKET_CAP_USD = 300000
-MIN_BUY_SELL_RATIO = 1.2
 RUGCHECK_BASE = "https://api.rugcheck.xyz"
 RUGCHECK_CACHE_TTL = 900
 RUGCHECK_FAIL_TTL = 60
@@ -260,6 +260,39 @@ def pair_age_hours(pair):
     if not created: return 999999
     return max(0, (time.time()*1000 - float(created))/3600000)
 
+def score_candidate(pair):
+    """Heuristic short-term score; 0-100, not a prediction."""
+    price = float(pair.get("priceUsd") or 0)
+    liq = float((pair.get("liquidity") or {}).get("usd") or 0)
+    v5 = float((pair.get("volume") or {}).get("m5") or 0)
+    v1 = float((pair.get("volume") or {}).get("h1") or 0)
+    ch = pair.get("priceChange") or {}
+    m5, h1, h6 = float(ch.get("m5") or 0), float(ch.get("h1") or 0), float(ch.get("h6") or 0)
+    tx = (pair.get("txns") or {}).get("m5") or {}
+    buys, sells = int(tx.get("buys") or 0), int(tx.get("sells") or 0)
+    ratio, total = buys / max(sells, 1), buys + sells
+    if price <= 0 or liq < MIN_LIQUIDITY_USD or v5 < MIN_M5_VOLUME_USD or total < 4:
+        return 0, "low activity", ratio
+    score = min(20, (liq / 3000) ** 0.5 * 5) + min(20, (v5 / 1000) ** 0.5 * 4)
+    score += min(15, ratio * 5) + min(10, total * 1.2)
+    if h1 > 0 and h6 > -5: score += min(15, h1 * 1.2)
+    if 1 <= m5 <= 12 and h1 > 0:
+        score += 15
+        setup = "momentum"
+    elif -8 <= m5 < 1 and h1 >= 2 and h6 > -8 and ratio >= 1:
+        score += 18
+        setup = "dip-buy"
+    elif m5 > 12:
+        score -= 12
+        setup = "overheated"
+    else:
+        setup = "mixed"
+    if v1 > 0 and v5 / max(v1, 1) > 0.8: score += 5
+    return min(100, max(0, score)), setup, ratio
+
+def dynamic_trade_size(score, cash):
+    wanted = 50 if score >= 82 else 40 if score >= 72 else 25 if score >= 64 else 10
+    return round(min(MAX_TRADE_SIZE, wanted, cash), 2)
 def scan_once():
     global last_scan, last_error, last_pair_count, last_candidate_count, last_candidates
     update_agent("uljas","working","Otsib uusi Solana paare","Laeb DEX Screeneri ja GeckoTerminali vooge")
@@ -269,21 +302,15 @@ def scan_once():
     for p in pairs:
         try:
             if p.get("chainId") != "solana": continue
-            liq = float((p.get("liquidity") or {}).get("usd") or 0)
-            market_cap = float(p.get("marketCap") or p.get("fdv") or 0)
-            vol = float((p.get("volume") or {}).get("m5") or 0)
-            change = float((p.get("priceChange") or {}).get("m5") or 0)
-            age = pair_age_hours(p)
-            price = float(p.get("priceUsd") or 0)
             address = (p.get("baseToken") or {}).get("address")
-            tx5 = (p.get("txns") or {}).get("m5") or {}
-            buys = int(tx5.get("buys") or 0)
-            sells = int(tx5.get("sells") or 0)
-            buy_sell_ratio = buys / max(sells, 1)
-            if not address or price <= 0: continue
-            if (10000 <= market_cap <= MAX_MARKET_CAP_USD and liq >= MIN_LIQUIDITY_USD
-                and vol >= MIN_M5_VOLUME_USD and change >= MIN_M5_CHANGE
-                and buys >= 5 and buy_sell_ratio >= MIN_BUY_SELL_RATIO and age <= MAX_AGE_HOURS):
+            price = float(p.get("priceUsd") or 0)
+            market_cap = float(p.get("marketCap") or p.get("fdv") or 0)
+            if not address or price <= 0 or market_cap < 10000: continue
+            score, setup, ratio = score_candidate(p)
+            if score >= MIN_SCORE:
+                p["_strategy_score"] = round(score, 1)
+                p["_setup"] = setup
+                p["_buy_sell_ratio"] = round(ratio, 2)
                 eligible.append(p)
         except (TypeError, ValueError):
             continue
@@ -398,13 +425,17 @@ def scan_once():
             hist.append({"t": int(time.time()), "p": price})
             del hist[:-80]
             pnl_pct = price / pos["entry_price"] - 1
-            if pnl_pct >= TAKE_PROFIT or pnl_pct <= STOP_LOSS:
+            pos["peak_price"] = max(float(pos.get("peak_price") or pos["entry_price"]), price)
+            peak_gain = pos["peak_price"] / pos["entry_price"] - 1
+            trailing_exit = peak_gain >= TRAIL_ACTIVATE and price / pos["peak_price"] - 1 <= -TRAIL_GIVEBACK
+            if pnl_pct >= TAKE_PROFIT or pnl_pct <= STOP_LOSS or trailing_exit:
                 proceeds = pos["quantity"] * price
                 pnl = proceeds - pos["cost"]
                 state["cash"] += proceeds
                 state["trades"].append({"symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],
                     "exit":price,"pnl":pnl,"pnl_pct":pnl_pct,"closed_at":datetime.now(timezone.utc).isoformat()})
-                add_event(f"müük {pos['symbol']} | {pnl_pct*100:+.1f}% | {pnl:+.2f} €")
+                reason = "trailing stop" if trailing_exit else ("take profit" if pnl_pct >= TAKE_PROFIT else "stop loss")
+                add_event(f"müük {pos['symbol']} | {reason} | {pnl_pct*100:+.1f}% | {pnl:+.2f} €")
                 del state["positions"][address]
         today = datetime.now(timezone.utc).date().isoformat()
         if state.get("day") != today:
@@ -412,16 +443,19 @@ def scan_once():
         if not paused and state["daily_count"] < MAX_TRADES_PER_DAY:
             for p in eligible:
                 address = p["baseToken"]["address"]
-                if address in state["positions"] or len(state["positions"]) >= MAX_POSITIONS or state["cash"] < TRADE_SIZE: continue
+                if address in state["positions"] or len(state["positions"]) >= MAX_POSITIONS: continue
+                size = dynamic_trade_size(float(p.get("_strategy_score") or 0), float(state["cash"]))
+                if size < MIN_TRADE_SIZE: continue
                 price = float(p["priceUsd"])
                 symbol = p["baseToken"].get("symbol","?")
-                state["cash"] -= TRADE_SIZE
+                state["cash"] -= size
                 state["positions"][address] = {"symbol":symbol,"entry_price":price,"last_price":price,
-                    "quantity":TRADE_SIZE/price,"cost":TRADE_SIZE,"opened_at":datetime.now(timezone.utc).isoformat(),
+                    "peak_price":price,"quantity":size/price,"cost":size,"opened_at":datetime.now(timezone.utc).isoformat(),
+                    "strategy":p.get("_setup","momentum"),"score":p.get("_strategy_score",0),
                     "liquidity_usd":float((p.get("liquidity") or {}).get("usd") or 0), "market_cap":float(p.get("marketCap") or p.get("fdv") or 0)}
                 state["daily_count"] += 1
-                add_event(f"ost {symbol} | €{TRADE_SIZE:.2f} | momentum +{float((p.get('priceChange') or {}).get('m5') or 0):.1f}%")
-                if len(state["positions"]) >= MAX_POSITIONS: break
+                add_event(f"ost {symbol} | €{size:.2f} | {p.get('_setup')} | skoor {p.get('_strategy_score')}")
+                if len(state["positions"]) >= MAX_POSITIONS or state["daily_count"] >= MAX_TRADES_PER_DAY: break
         try:
             save_state()
         except Exception:
@@ -444,6 +478,9 @@ def scan_once():
             "address": (p.get("baseToken") or {}).get("address",""),
             "url": p.get("url",""),
             "rugcheck": p.get("_rugcheck", {"status":"not_checked"}),
+            "strategy_score": p.get("_strategy_score", 0),
+            "setup": p.get("_setup", ""),
+            "buy_sell_ratio": p.get("_buy_sell_ratio", 0),
             "sources": p.get("_discovery_sources", []),
             "news": p.get("_news_matches", [])
         } for p in eligible[:20]]
@@ -601,7 +638,7 @@ def live_data():
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"take_profit_pct":TAKE_PROFIT*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
+            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"min_market_cap":10000,"max_market_cap":None,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_score":MIN_SCORE,"stop_loss_pct":STOP_LOSS*100,"take_profit_pct":TAKE_PROFIT*100,"trail_activate_pct":TRAIL_ACTIVATE*100,"trail_giveback_pct":TRAIL_GIVEBACK*100,"scan_seconds":SCAN_SECONDS,"max_trade_size":MAX_TRADE_SIZE,"min_trade_size":MIN_TRADE_SIZE}}
     return jsonify(payload)
 
 def run_web():
