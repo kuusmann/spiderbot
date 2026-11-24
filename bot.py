@@ -110,10 +110,12 @@ def load_state():
     try:
         STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         existed = STATE_FILE.exists()
+        has_daily_baseline = False
         if existed:
             data = json.loads(STATE_FILE.read_text())
             if not isinstance(data, dict) or "cash" not in data or "positions" not in data or "trades" not in data:
                 raise ValueError("state file is incomplete; refusing to reset portfolio")
+            has_daily_baseline = "day_start_equity" in data
             state.update(data)
             previous_start = float(state.get("starting_balance", 50.0))
             if previous_start < STARTING_BALANCE:
@@ -132,7 +134,7 @@ def load_state():
             state.setdefault(key, default)
 
         today = _tallinn_day()
-        if state.get("day") != today:
+        if state.get("day") != today or not has_daily_baseline:
             state["day"] = today
             state["daily_count"] = 0
             state["stopped_tokens"] = {}
@@ -213,9 +215,9 @@ def update_market_snapshots(pairs):
                 if float(oldest.get("p") or 0) > 0:
                     gain_10m = (price / float(oldest["p"]) - 1) * 100
             vh = volumes.setdefault(address, [])
-            baseline = [float(x["v"]) for x in vh if 60 <= now - float(x.get("t", 0)) <= 900]
+            baseline = [float(x["v"]) for x in vh if 300 <= now - float(x.get("t", 0)) <= 1200]
             oldest_age = max([now - float(x.get("t", 0)) for x in vh] or [0])
-            multiple = volume5 / (sum(baseline) / len(baseline)) if len(baseline) >= 20 and oldest_age >= 840 and sum(baseline) > 0 else None
+            multiple = volume5 / (sum(baseline) / len(baseline)) if len(baseline) >= 20 and oldest_age >= 1140 and sum(baseline) > 0 else None
             features[address] = {
                 "breakout": len(old_5m) >= 3 and price > max(old_5m),
                 "observed_high": observed_high,
@@ -694,6 +696,11 @@ def scan_once():
             pos["peak_price"] = max(float(pos.get("peak_price") or pos["entry_price"]), price)
             state.setdefault("price_history", {}).setdefault(address, []).append({"t":now,"p":price})
             state["price_history"][address] = state["price_history"][address][-420:]
+            if not pos.get("opened_ts"):
+                try:
+                    pos["opened_ts"] = datetime.fromisoformat(pos.get("opened_at", "").replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    pos["opened_ts"] = now
             age_seconds = now - float(pos.get("opened_ts") or now)
             pnl_pct = price / float(pos["entry_price"]) - 1
             runner = bool(pos.get("runner"))
