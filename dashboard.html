@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="et"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080e1a"><title>SPIDER BOT · ÄMBLIKROBOT</title>
+<html lang="et"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080e1a"><title>janobot</title>
 <style>
 :root{--bg:#070c12;--panel:#101a25;--panel2:#0b141e;--line:#23384a;--muted:#91a5b8;--text:#eaf3fa;--green:#56e6a1;--red:#ff7185;--gold:#ffc36a;--blue:#75bdff}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -10%,#172b3c 0,#070c12 58%);color:var(--text);font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-transform:lowercase}main{max-width:1500px;margin:auto;padding:14px}.top,.row{display:flex;justify-content:space-between;align-items:center;gap:12px}.top{padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:#0c1621;margin-bottom:12px}.brand{font-size:23px;font-weight:900;letter-spacing:1.5px}.muted,.small,.label{color:var(--muted)}.small,.label{font-size:11px}.label{letter-spacing:1px}.pill,.tag,.state{border:1px solid var(--line);border-radius:20px;padding:5px 9px;font-size:10px;background:#0b1721}.green{color:var(--green)}.red{color:var(--red)}.gold{color:var(--gold)}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}.card{background:linear-gradient(145deg,#111e2a,#0b141d);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0;box-shadow:0 6px 20px #0004}.value{font-size:26px;font-weight:850;margin-top:5px;font-variant-numeric:tabular-nums}.section{font-size:12px;font-weight:900;letter-spacing:1px;color:#b6cada;margin:4px 0 10px}.office{display:none}
@@ -200,7 +200,7 @@ body{background:radial-gradient(ellipse at 50% -12%,#192945 0,#080e1a 56%,#03071
 
 
 /* MEME DESK full-screen terminal skin */
-body.meme-desk{margin:0;background:#05070a;color:#e5eaf0;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px;letter-spacing:.15px}
+body.meme-desk{margin:0;background:#05070a;color:#e5eaf0;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px;letter-spacing:.15px;text-transform:lowercase}
 .meme-desk main.desk{max-width:1600px;margin:auto;padding:18px;display:grid;gap:13px}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:8px 3px 14px;border-bottom:1px solid #1e2833}
 .brand{display:flex;align-items:center;gap:12px}.brandmark{width:43px;height:43px;border:2px solid #d9e2e9;border-radius:50%;display:grid;place-items:center;font-size:27px;background:#0d141c;box-shadow:0 0 22px #4ad4aa2b}
@@ -243,7 +243,7 @@ footer{display:flex;justify-content:space-between;gap:10px;color:#526477;font:7p
 
 
 /* Desktop width fix: legacy .desk workstation rule must not size the page shell */
-body.meme-desk{width:100%;min-width:320px;min-height:100vh;overflow-x:hidden;text-transform:none}
+body.meme-desk{width:100%;min-width:320px;min-height:100vh;overflow-x:hidden;text-transform:lowercase}
 body.meme-desk main.desk{display:grid!important;width:100%!important;max-width:1600px!important;height:auto!important;min-height:100vh;margin:0 auto!important;padding:clamp(14px,2vw,30px)!important;align-items:stretch;flex:none!important;gap:clamp(12px,1.2vw,20px)}
 body.meme-desk main.desk>.topbar,body.meme-desk main.desk>.ticker,body.meme-desk main.desk>.panel,body.meme-desk main.desk>.lower,body.meme-desk main.desk>footer{width:100%;min-width:0}
 body.meme-desk main.desk .command-stage{width:100%;max-width:1300px;height:clamp(330px,31vw,470px)}
@@ -254,11 +254,11 @@ body.meme-desk main.desk .agent{width:clamp(160px,17vw,230px)}
 @media(max-width:580px){body.meme-desk main.desk .tokens{grid-template-columns:repeat(2,minmax(0,1fr))}body.meme-desk main.desk .lower{grid-template-columns:1fr}}
 
 </style></head><body class="meme-desk"><main class="desk">
-<header class="topbar"><div class="brand"><div class="brandmark">◉</div><div><h1>SPIDER BOT <span>MEME DESK</span></h1><small>SOLANA · LIVE SIGNAL INTELLIGENCE · PAPER EXECUTION</small></div></div><div class="balance"><small>PORTFOLIO BALANCE</small><b id="total">€1,000.00</b><span id="pnl">+€0.00 REALIZED</span></div><div id="live" class="live"><i></i> CONNECTING</div></header>
+<header class="topbar"><div class="brand"><div class="brandmark">◉</div><div><h1>janobot</h1><small>SOLANA · LIVE SIGNAL INTELLIGENCE · PAPER EXECUTION</small></div></div><div class="balance"><small>PORTFOLIO BALANCE</small><b id="total">€1,000.00</b><span id="pnl">+€0.00 REALIZED</span></div><div id="live" class="live"><i></i> CONNECTING</div></header>
 <div class="ticker"><b>● SYSTEM LIVE</b><span id="scanmeta">WAITING FOR MARKET DATA</span><span id="clock">--:--:--</span><em>PAPER MODE</em></div>
 <section class="panel command"><div class="panelhead"><div><b>01 / AGENT COMMAND NETWORK</b><small>6 AGENTS · ONE DECISION CORE · REAL SCANNER TELEMETRY</small></div><span id="online">0 / 6 ACTIVE</span></div>
 <div class="command-stage"><svg class="wires" viewBox="0 0 1000 500" preserveAspectRatio="none"><path d="M160 90L500 250L840 90M160 90L160 410L500 250L840 410L840 90M160 410L500 250L840 410"/><path class="dataflow" d="M160 90L500 250L840 90M160 90L160 410L500 250L840 410L840 90M160 410L500 250L840 410"/></svg>
-<div class="core"><div class="core-orbit"></div><div class="core-logo">◉</div><b>SPIDER BOT</b><small>COMMAND CORE</small><strong id="decision">WAIT</strong></div>
+<div class="core"><div class="core-orbit"></div><div class="core-logo">◉</div><b>janobot</b><small>COMMAND CORE</small><strong id="decision">WAIT</strong></div>
 <article class="agent a1" data-agent="uljas"><b>🟡 ULJAS</b><small>OPPORTUNITY SCOUT</small><em>WAITING</em><span>0 PAIRS</span></article>
 <article class="agent a2" data-agent="teataja"><b>🟥 TEATAJA</b><small>PROJECT INTEL</small><em>LIMITED</em><span>PUBLIC LINKS</span></article>
 <article class="agent a3" data-agent="taju"><b>🟣 TAJU</b><small>BUY / SELL FLOW</small><em>WAITING</em><span>5M PRESSURE</span></article>
@@ -273,7 +273,7 @@ body.meme-desk main.desk .agent{width:clamp(160px,17vw,230px)}
 <article class="panel logpanel"><div class="panelhead"><div><b>05 / SPIDER LOG</b><small>ACTUAL BOT EVENTS · TRADES · RISK DECISIONS</small></div><span id="eventcount">0 EVENTS</span></div><div id="events" class="logs"><div class="empty">Waiting for events…</div></div></article>
 </section>
 <section class="panel activity"><div class="panelhead"><div><b>06 / AGENT ACTIVITY STREAM</b><small>REAL AGENT STATUS AND SCANNER HISTORY</small></div><span>REFRESH 5 SEC</span></div><div id="agentfeed" class="logs"><div class="empty">Waiting for agent activity…</div></div></section>
-<footer><span>SPIDER BOT · MEME DESK</span><span>SIMULATED TRADES ONLY · NO WALLET SIGNING · NO REAL ORDERS</span></footer>
+<footer><span>janobot</span><span>SIMULATED TRADES ONLY · NO WALLET SIGNING · NO REAL ORDERS</span></footer>
 </main>
 <script>
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),eur=n=>'€'+Number(n||0).toFixed(2),usd=n=>'$'+Number(n||0).toLocaleString('en-US',{maximumFractionDigits:0}),pct=n=>(Number(n)>=0?'+':'')+Number(n||0).toFixed(1)+'%';
