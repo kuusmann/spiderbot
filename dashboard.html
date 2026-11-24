@@ -103,6 +103,103 @@ body{background:radial-gradient(ellipse at 50% -12%,#172c45 0,#070b14 55%,#03060
 .agent-feed-empty{color:#829bb7;font-size:11px;padding:8px}
 @media(max-width:760px){.agent-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.agent-flow{gap:5px}.agent-feed-head{align-items:flex-start;flex-direction:column}}
 @media(max-width:480px){.agent-grid{grid-template-columns:1fr}.agent-command{padding:12px}.agent-card{padding:10px}.agent-heading{align-items:flex-start;flex-direction:column}}
+
+/* LIVE STREAM COMMAND ROOM - pixel-art agents */
+body{background:radial-gradient(ellipse at 50% -12%,#192945 0,#080e1a 56%,#030711 100%);color:#e9f3ff}
+.agent-command{position:relative;overflow:hidden;background:linear-gradient(145deg,#101c30,#07111f 72%);border:1px solid #2d4767;box-shadow:0 16px 45px #0009}
+.agent-command:before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.13;background:linear-gradient(transparent 50%,#7fbbff10 50%);background-size:100% 4px}
+.agent-heading{position:relative;z-index:2}
+.live-floor{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:10px 2px 14px}
+.floor-links{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.6}
+.floor-links path{fill:none;stroke:#24466a;stroke-width:2;stroke-dasharray:7 10;animation:floorflow 9s linear infinite}
+.floor-links path:nth-child(2){stroke:#236c82;stroke-width:1.4;stroke-dasharray:3 13;animation-duration:13s}
+.floor-links circle{fill:#55dafa;filter:drop-shadow(0 0 6px #44dfff);animation:nodepulse 2s ease-in-out infinite alternate}
+@keyframes floorflow{to{stroke-dashoffset:-150}}
+@keyframes nodepulse{to{opacity:.28;transform:scale(.7);transform-origin:center}}
+.live-agent{--agent-color:#59dfff;position:relative;z-index:1;min-width:0;padding:11px;border:1px solid color-mix(in srgb,var(--agent-color) 37%,#24354c);border-radius:9px;background:linear-gradient(145deg,#13233aee,#091423f5 74%);box-shadow:0 7px 22px #0006,inset 0 0 24px color-mix(in srgb,var(--agent-color) 5%,transparent);overflow:hidden;transition:border-color .25s,box-shadow .25s,transform .25s}
+.live-agent:after{content:"";position:absolute;left:0;top:0;width:100%;height:2px;background:var(--agent-color);opacity:.85;box-shadow:0 0 12px var(--agent-color)}
+.live-agent.state-working,.live-agent.state-active{border-color:var(--agent-color);box-shadow:0 0 24px color-mix(in srgb,var(--agent-color) 15%,transparent),inset 0 0 28px color-mix(in srgb,var(--agent-color) 7%,transparent)}
+.live-agent.state-blocked{border-color:#ff6579}.live-agent.state-limited{border-color:#d8a34c}
+.agent-topline{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
+.agent-topline b{display:block;color:#f4f8ff;font-size:12px;letter-spacing:1.4px}
+.agent-topline small{display:block;color:#7996b7;font-size:8px;letter-spacing:1px;margin-top:3px}
+.agent-state{padding:4px 6px;border:1px solid #334a67;border-radius:3px;background:#0a1728;color:#90a9c5;font:800 8px ui-monospace,monospace;white-space:nowrap;letter-spacing:.8px}
+.agent-state.state-active{color:#69efb2;border-color:#176348;background:#08251f}
+.agent-state.state-working{color:#ffe07a;border-color:#72561d;background:#2a210d}
+.agent-state.state-limited{color:#ffcc76;border-color:#75521e;background:#2b200d}
+.agent-state.state-blocked{color:#ff8494;border-color:#753040;background:#2b1019}
+.agent-workspace{position:relative;display:grid;grid-template-columns:1fr 1.08fr;align-items:center;gap:7px;min-height:112px;margin:7px 0 8px;padding:7px 8px;border:1px solid #203854;border-radius:6px;background:radial-gradient(ellipse at 28% 65%,color-mix(in srgb,var(--agent-color) 13%,transparent),transparent 56%),linear-gradient(180deg,#0a1728,#07101c)}
+.agent-workspace:before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--agent-color),transparent);opacity:.55}
+.bot-scene{position:relative;height:96px;display:flex;justify-content:center;align-items:center;image-rendering:pixelated}
+.bot-shadow{position:absolute;bottom:8px;width:54px;height:8px;border-radius:50%;background:#0009;filter:blur(3px);animation:shadowpulse 1.7s ease-in-out infinite}
+.pixel-bot{position:relative;width:54px;height:81px;transform-origin:50% 90%;animation:botidle 1.8s ease-in-out infinite;filter:drop-shadow(0 0 8px color-mix(in srgb,var(--agent-color) 28%,transparent))}
+.bot-antenna{position:absolute;left:25px;top:0;width:4px;height:10px;background:var(--agent-color);box-shadow:0 -4px 0 -1px var(--agent-color);animation:antenna 1.2s ease-in-out infinite alternate}
+.bot-head{position:absolute;left:8px;top:10px;width:38px;height:28px;border:3px solid var(--agent-color);background:#172b43;border-radius:3px;box-shadow:inset 0 0 0 2px #091321,0 3px 0 #050b13}
+.bot-head:before,.bot-head:after{content:"";position:absolute;top:8px;width:4px;height:10px;background:var(--agent-color)}
+.bot-head:before{left:-7px}.bot-head:after{right:-7px}
+.bot-head em{position:absolute;top:7px;width:5px;height:6px;background:#f6fdff;box-shadow:0 0 8px var(--agent-color);animation:eyeBlink 4.5s infinite}
+.bot-head em:first-child{left:7px}.bot-head em:nth-child(2){right:7px}
+.bot-head strong{position:absolute;left:13px;bottom:3px;width:8px;height:2px;background:var(--agent-color)}
+.bot-body{position:absolute;left:14px;top:42px;width:26px;height:22px;border:3px solid var(--agent-color);border-radius:2px;background:#16304a;box-shadow:inset 0 0 0 3px #0a1727}
+.bot-body em{position:absolute;left:7px;top:5px;width:6px;height:6px;background:var(--agent-color);box-shadow:0 0 9px var(--agent-color);animation:corepulse .9s ease-in-out infinite alternate}
+.bot-arm{position:absolute;top:44px;width:8px;height:20px;background:#294665;border:2px solid var(--agent-color);border-radius:2px;transform-origin:top center}
+.bot-arm.left{left:5px;transform:rotate(15deg);animation:armleft .75s ease-in-out infinite alternate}
+.bot-arm.right{right:5px;transform:rotate(-17deg);animation:armright .62s ease-in-out infinite alternate}
+.bot-leg{position:absolute;top:64px;width:9px;height:14px;background:#203a57;border:2px solid var(--agent-color);transform-origin:top center}
+.bot-leg.left{left:16px;animation:legleft .55s ease-in-out infinite alternate}
+.bot-leg.right{right:16px;animation:legright .55s ease-in-out infinite alternate}
+@keyframes botidle{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-4px) rotate(1deg)}}
+@keyframes shadowpulse{50%{transform:scaleX(.72);opacity:.5}}
+@keyframes antenna{to{filter:brightness(1.9);transform:rotate(7deg)}}
+@keyframes eyeBlink{0%,46%,50%,100%{transform:scaleY(1)}48%{transform:scaleY(.12)}}
+@keyframes corepulse{to{opacity:.28;transform:scale(.65)}}
+@keyframes armleft{to{transform:rotate(-22deg)}}
+@keyframes armright{to{transform:rotate(24deg)}}
+@keyframes legleft{to{transform:rotate(-20deg)}}
+@keyframes legright{to{transform:rotate(20deg)}}
+.terminal-screen{position:relative;align-self:stretch;min-width:0;padding:8px 7px 6px;border:1px solid color-mix(in srgb,var(--agent-color) 45%,#25405d);border-radius:3px;background:linear-gradient(180deg,#081525,#0c1d30);overflow:hidden;box-shadow:inset 0 0 15px #0008}
+.terminal-screen:after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent 0 4px,#ffffff08 5px);animation:screenroll 5s linear infinite}
+@keyframes screenroll{to{background-position:0 30px}}
+.screen-title{position:relative;z-index:1;display:block;color:var(--agent-color);font:700 7px ui-monospace,monospace;letter-spacing:.7px;white-space:nowrap}
+.terminal-screen small{position:absolute;bottom:5px;left:7px;color:#6f89a7;font:6px ui-monospace,monospace;letter-spacing:.5px}
+.screen-grid{position:absolute;inset:25px 8px 22px;background:linear-gradient(#1e3956 1px,transparent 1px),linear-gradient(90deg,#1e3956 1px,transparent 1px);background-size:13px 10px;opacity:.5}
+.screen-bars{position:absolute;left:12px;right:10px;bottom:24px;height:30px;display:flex;align-items:flex-end;gap:4px}
+.screen-bars i{flex:1;background:var(--agent-color);opacity:.75;height:var(--h,40%);animation:barbeat 1.1s ease-in-out infinite alternate}
+.screen-bars i:nth-child(2){--h:75%;animation-delay:.15s}.screen-bars i:nth-child(3){--h:52%;animation-delay:.3s}.screen-bars i:nth-child(4){--h:90%;animation-delay:.45s}.screen-bars i:nth-child(5){--h:33%;animation-delay:.6s}.screen-bars i:nth-child(6){--h:65%;animation-delay:.75s}.screen-bars i:nth-child(7){--h:48%;animation-delay:.9s}
+@keyframes barbeat{to{height:calc(var(--h,40%) * .55);opacity:.35}}
+.screen-lines{display:grid;gap:6px;margin:15px 2px 0}
+.screen-lines i{height:3px;background:var(--agent-color);opacity:.5;width:88%;animation:lineflash 2s ease-in-out infinite}
+.screen-lines i:nth-child(2){width:65%;animation-delay:.4s}.screen-lines i:nth-child(3){width:78%;animation-delay:.8s}.screen-lines i:nth-child(4){width:54%;animation-delay:1.2s}.screen-lines i:nth-child(5){width:73%;animation-delay:1.6s}
+@keyframes lineflash{50%{opacity:1;filter:brightness(1.7)}}
+.sentiment-ring{width:42px;height:42px;margin:6px auto 2px;border:4px solid #f16f86;border-left-color:#4fe0a2;border-bottom-color:#4fe0a2;border-radius:50%;display:grid;place-items:center;animation:ringturn 8s linear infinite}
+.sentiment-ring b{font:700 9px ui-monospace,monospace;color:#d9edff}.sentiment-legend{font:6px ui-monospace,monospace;color:#8ea8c6;text-align:center}.sentiment-legend i{display:inline-block;width:5px;height:5px;border-radius:50%;background:#4fe0a2}.sentiment-legend i:nth-of-type(2){background:#f16f86}
+@keyframes ringturn{to{transform:rotate(360deg)}}
+.mini-chart{width:100%;height:58px;margin:3px 0 0;overflow:visible}
+.mini-chart path{fill:none;stroke:var(--agent-color);stroke-width:2.4;stroke-dasharray:180;stroke-dashoffset:0;filter:drop-shadow(0 0 4px var(--agent-color));animation:chartdraw 3.4s ease-in-out infinite alternate}
+@keyframes chartdraw{to{stroke-dashoffset:55}}
+.chart-ticks{display:flex;gap:4px;margin-top:-4px}.chart-ticks i{height:2px;flex:1;background:#294866}
+.shield-icon{width:32px;height:37px;margin:8px auto 4px;display:grid;place-items:center;clip-path:polygon(50% 0,94% 16%,86% 72%,50% 100%,14% 72%,6% 16%);background:var(--agent-color);color:#082018;font:bold 19px ui-monospace,monospace;filter:drop-shadow(0 0 8px var(--agent-color));animation:shieldpulse 1.8s ease-in-out infinite alternate}
+@keyframes shieldpulse{to{filter:brightness(1.5) drop-shadow(0 0 12px var(--agent-color))}}
+.risk-leds{display:flex;justify-content:center;gap:4px}.risk-leds i{width:5px;height:5px;border-radius:50%;background:var(--agent-color);box-shadow:0 0 6px var(--agent-color)}
+.decision-readout{margin:10px auto 7px;text-align:center;color:#ffd08d;font:900 20px ui-monospace,monospace;letter-spacing:2px;text-shadow:0 0 12px #ff9d49;animation:decisionglow 1.8s ease-in-out infinite alternate}
+@keyframes decisionglow{to{opacity:.55}}
+.decision-meter{display:flex;gap:4px}.decision-meter i{height:4px;flex:1;background:#4a3824;border-radius:2px;overflow:hidden}.decision-meter i:first-child{background:#57dca2}
+.agent-output{display:grid;gap:3px;min-width:0;min-height:52px}
+.agent-task{font-size:10px;color:#dceaff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent-result{font:9px ui-monospace,monospace;color:#85a3c2;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.agent-symbol{font:8px ui-monospace,monospace;color:var(--agent-color);min-height:9px}
+.agent-progress{height:2px;margin-top:8px;background:#1a2b40;overflow:hidden}
+.agent-progress i{display:block;width:42%;height:100%;background:var(--agent-color);box-shadow:0 0 10px var(--agent-color);animation:progressmove 2.4s ease-in-out infinite}
+@keyframes progressmove{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}
+.chief-live{background:linear-gradient(145deg,#2b2119,#0c1727);border-color:#936333}
+.chief-screen .decision-readout{color:#ffb45b}
+.agent-flow{position:relative;z-index:1}
+.agent-feed{position:relative;z-index:1}
+.agent-feed-line{border-left-color:#388dbd}
+@media(max-width:900px){.live-floor{grid-template-columns:repeat(2,minmax(0,1fr))}.floor-links{opacity:.27}}
+@media(max-width:520px){.live-floor{grid-template-columns:1fr;gap:9px}.live-agent{padding:10px}.agent-workspace{min-height:105px}.agent-heading{align-items:flex-start}}
+@media(prefers-reduced-motion:reduce){.pixel-bot,.pixel-bot *,.bot-shadow,.terminal-screen:after,.floor-links path,.floor-links circle,.agent-progress i{animation:none!important}}
+
 </style></head><body><main>
 <header class="top"><div><div class="brand">🕷️ SPIDER BOT · ÄMBLIKROBOT</div><div class="small">Solana väiketokenid · hoogu jälgiv strateegia · demokonto</div></div><span id="live" class="pill green">● ühenduse loomine</span></header>
 <div class="metrics">
@@ -136,16 +233,57 @@ body{background:radial-gradient(ellipse at 50% -12%,#172c45 0,#070b14 55%,#03060
 </div><div class="crawl-foot small"><span id="crawlactivity">Robot otsib uusi tokenipaare…</span><span>● Reaalajas · värskendus iga 5 sekundi järel</span></div></section>
 <section class="agent-command">
 <div class="agent-heading"><div><div class="section">SPIDER BOT · AGENTIDE JUHTIMISKESKUS</div><div class="agent-sub">Kuus iseseisvat analüüsiagenti · päris turuandmed · paber-tehingud</div></div><span class="agent-live"><i></i> LIVE ACTION</span></div>
-<div class="agent-grid" id="agentgrid">
-<div class="agent-card" data-agent="uljas"><div class="bot-avatar yellow">U</div><div class="agent-info"><b>ULJAS</b><small>Võimaluste otsija</small><span class="agent-status">Ootel</span><p>Leiab uusi Solana tokeneid.</p></div></div>
-<div class="agent-card" data-agent="teataja"><div class="bot-avatar red">T</div><div class="agent-info"><b>TEATAJA</b><small>Uudiste uurija</small><span class="agent-status">Ootel</span><p>Kontrollib projektiinfot ja katalüsaatoreid.</p></div></div>
-<div class="agent-card" data-agent="taju"><div class="bot-avatar purple">T</div><div class="agent-info"><b>TAJU</b><small>Sentimendi analüütik</small><span class="agent-status">Ootel</span><p>Hindab ostu- ja müügisurvet.</p></div></div>
-<div class="agent-card" data-agent="teras"><div class="bot-avatar blue">T</div><div class="agent-info"><b>TERAS</b><small>Graafikute analüütik</small><span class="agent-status">Ootel</span><p>Analüüsib trendi ja sisenemiskohti.</p></div></div>
-<div class="agent-card" data-agent="valvur"><div class="bot-avatar green">V</div><div class="agent-info"><b>VALVUR</b><small>Riskikaitsja</small><span class="agent-status">Ootel</span><p>Blokeerib ohtlikud ja kontrollimata tokenid.</p></div></div>
-<div class="agent-card chief" data-agent="jano"><div class="bot-avatar orange">J</div><div class="agent-info"><b>JANO</b><small>Peajuht · lõplik otsus</small><span class="agent-status">Ootel</span><p>Koondab analüüsid: BUY / WAIT / SKIP.</p></div></div>
+<div class="live-floor" id="agentgrid">
+<svg class="floor-links" viewBox="0 0 1200 500" preserveAspectRatio="none" aria-hidden="true">
+ <path d="M190 115 H600 V385 H1010 M600 115 V385 M190 385 H1010"/>
+ <path d="M190 115 Q400 115 600 250 T1010 385 M1010 115 Q800 115 600 250 T190 385"/>
+ <circle cx="190" cy="115" r="5"/><circle cx="600" cy="115" r="5"/><circle cx="1010" cy="115" r="5"/><circle cx="190" cy="385" r="5"/><circle cx="600" cy="385" r="5"/><circle cx="1010" cy="385" r="5"/>
+</svg>
+<article class="live-agent" data-agent="uljas" style="--agent-color:#ffd34e">
+ <div class="agent-topline"><div><b>01 / ULJAS</b><small>VÕIMALUSTE OTSIJA</small></div><span class="agent-state">OOTEL</span></div>
+ <div class="agent-workspace"><div class="bot-scene"><div class="pixel-bot"><i class="bot-antenna"></i><i class="bot-head"><em></em><em></em><strong></strong></i><i class="bot-body"><em></em></i><i class="bot-arm left"></i><i class="bot-arm right"></i><i class="bot-leg left"></i><i class="bot-leg right"></i></div><div class="bot-shadow"></div></div>
+ <div class="terminal-screen"><span class="screen-title">TOKEN RADAR</span><div class="screen-grid"></div><div class="screen-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><small>DEX / GECKO FEEDS</small></div></div>
+ <div class="agent-output"><b class="agent-task">Otsib uusi tokeneid</b><span class="agent-result">Ootan esimest skanni</span><span class="agent-symbol"></span></div>
+ <div class="agent-progress"><i></i></div>
+</article>
+<article class="live-agent" data-agent="teataja" style="--agent-color:#ff6579">
+ <div class="agent-topline"><div><b>02 / TEATAJA</b><small>UUDISTE UURIJA</small></div><span class="agent-state">OOTEL</span></div>
+ <div class="agent-workspace"><div class="bot-scene"><div class="pixel-bot"><i class="bot-antenna"></i><i class="bot-head"><em></em><em></em><strong></strong></i><i class="bot-body"><em></em></i><i class="bot-arm left"></i><i class="bot-arm right"></i><i class="bot-leg left"></i><i class="bot-leg right"></i></div><div class="bot-shadow"></div></div>
+ <div class="terminal-screen"><span class="screen-title">PROJECT WATCH</span><div class="screen-lines"><i></i><i></i><i></i><i></i><i></i></div><small>PUBLIC LINKS / NEWS</small></div></div>
+ <div class="agent-output"><b class="agent-task">Kontrollib projektiinfot</b><span class="agent-result">Uudisevoog pole ühendatud</span><span class="agent-symbol"></span></div>
+ <div class="agent-progress"><i></i></div>
+</article>
+<article class="live-agent" data-agent="taju" style="--agent-color:#c17bff">
+ <div class="agent-topline"><div><b>03 / TAJU</b><small>TURU MEELEOLU</small></div><span class="agent-state">OOTEL</span></div>
+ <div class="agent-workspace"><div class="bot-scene"><div class="pixel-bot"><i class="bot-antenna"></i><i class="bot-head"><em></em><em></em><strong></strong></i><i class="bot-body"><em></em></i><i class="bot-arm left"></i><i class="bot-arm right"></i><i class="bot-leg left"></i><i class="bot-leg right"></i></div><div class="bot-shadow"></div></div>
+ <div class="terminal-screen"><span class="screen-title">BUY / SELL FLOW</span><div class="sentiment-ring"><i></i><b>5M</b></div><div class="sentiment-legend"><i></i> BUY <i></i> SELL</div><small>SWAP PRESSURE</small></div></div>
+ <div class="agent-output"><b class="agent-task">Hindab turu meeleolu</b><span class="agent-result">Ootan tehinguandmeid</span><span class="agent-symbol"></span></div>
+ <div class="agent-progress"><i></i></div>
+</article>
+<article class="live-agent" data-agent="teras" style="--agent-color:#58aaff">
+ <div class="agent-topline"><div><b>04 / TERAS</b><small>GRAAFIKUTE ANALÜÜTIK</small></div><span class="agent-state">OOTEL</span></div>
+ <div class="agent-workspace"><div class="bot-scene"><div class="pixel-bot"><i class="bot-antenna"></i><i class="bot-head"><em></em><em></em><strong></strong></i><i class="bot-body"><em></em></i><i class="bot-arm left"></i><i class="bot-arm right"></i><i class="bot-leg left"></i><i class="bot-leg right"></i></div><div class="bot-shadow"></div></div>
+ <div class="terminal-screen"><span class="screen-title">PRICE ACTION</span><svg class="mini-chart" viewBox="0 0 130 58"><path d="M0 45 L15 39 L25 43 L38 28 L52 33 L67 17 L79 24 L91 12 L105 18 L119 5 L130 9"/></svg><div class="chart-ticks"><i></i><i></i><i></i><i></i><i></i></div><small>5M MOMENTUM</small></div></div>
+ <div class="agent-output"><b class="agent-task">Analüüsib hinnagraafikut</b><span class="agent-result">Ootan hinnasignaali</span><span class="agent-symbol"></span></div>
+ <div class="agent-progress"><i></i></div>
+</article>
+<article class="live-agent" data-agent="valvur" style="--agent-color:#53e2a0">
+ <div class="agent-topline"><div><b>05 / VALVUR</b><small>RISKIKAITSE</small></div><span class="agent-state">OOTEL</span></div>
+ <div class="agent-workspace"><div class="bot-scene"><div class="pixel-bot"><i class="bot-antenna"></i><i class="bot-head"><em></em><em></em><strong></strong></i><i class="bot-body"><em></em></i><i class="bot-arm left"></i><i class="bot-arm right"></i><i class="bot-leg left"></i><i class="bot-leg right"></i></div><div class="bot-shadow"></div></div>
+ <div class="terminal-screen"><span class="screen-title">RISK SCANNER</span><div class="shield-icon">✓</div><div class="risk-leds"><i></i><i></i><i></i><i></i><i></i></div><small>RUGCHECK / HOLDER DATA</small></div></div>
+ <div class="agent-output"><b class="agent-task">Kontrollib riske</b><span class="agent-result">Ootan riskiraportit</span><span class="agent-symbol"></span></div>
+ <div class="agent-progress"><i></i></div>
+</article>
+<article class="live-agent chief-live" data-agent="jano" style="--agent-color:#ffab50">
+ <div class="agent-topline"><div><b>06 / JANO</b><small>PEAJUHT · OTSUSTUSKESKUS</small></div><span class="agent-state">OOTEL</span></div>
+ <div class="agent-workspace"><div class="bot-scene"><div class="pixel-bot"><i class="bot-antenna"></i><i class="bot-head"><em></em><em></em><strong></strong></i><i class="bot-body"><em></em></i><i class="bot-arm left"></i><i class="bot-arm right"></i><i class="bot-leg left"></i><i class="bot-leg right"></i></div><div class="bot-shadow"></div></div>
+ <div class="terminal-screen chief-screen"><span class="screen-title">FINAL DECISION</span><div class="decision-readout">WAIT</div><div class="decision-meter"><i></i><i></i><i></i></div><small>5 AGENT REPORTS</small></div></div>
+ <div class="agent-output"><b class="agent-task">Koondab analüüsid</b><span class="agent-result">Ootan agentide tulemusi</span><span class="agent-symbol"></span></div>
+ <div class="agent-progress"><i></i></div>
+</article>
 </div>
 <div class="agent-flow"><span>ULJAS</span><b>→</b><span>TEATAJA</span><b>→</b><span>TAJU</span><b>→</b><span>TERAS</span><b>→</b><span>VALVUR</span><b>→</b><strong>JANO · OTSUS</strong></div>
-<div class="agent-feed-head"><b>AGENTIDE LIVE TEGEVUS</b><span>Uueneb iga 5 sekundi järel · teavitusi ei saadeta</span></div>
+<div class="agent-feed-head"><b>AGENTIDE LIVE TEGEVUS</b><span>Päris skannitulemused · visuaalne animatsioon · ilma hüpikteavitusteta</span></div>
 <div id="agentfeed" class="agent-feed"><div class="agent-feed-empty">Ootan agentide esimesi päris analüüse…</div></div>
 </section>
 <div class="main-grid">
@@ -163,12 +301,23 @@ function spark(a){if(!a||a.length<2)return '<div class="small">graafik kogub and
 let eq=[1000];function draw(){let lo=Math.min(...eq,1000),hi=Math.max(...eq,1000),sp=hi-lo||1,pts=eq.map((v,i)=>(i*1000/Math.max(1,eq.length-1))+','+(225-(v-lo)*190/sp)).join(' '),last=pts.split(' ').slice(-1)[0];let svg=document.getElementById('equity');svg.innerHTML='<defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#56e6a1" stop-opacity=".28"/><stop offset="1" stop-color="#56e6a1" stop-opacity="0"/></linearGradient></defs><path d="M0 225H1000" stroke="#294052" stroke-dasharray="4 8"/><path d="M0 130H1000" stroke="#203547" stroke-dasharray="3 9"/><polygon points="0,225 '+pts+' 1000,225" fill="url(#area)"/><polyline points="'+pts+'" fill="none" stroke="'+(eq[eq.length-1]>=1000?'#56e6a1':'#ff7185')+'" stroke-width="4" vector-effect="non-scaling-stroke"/><circle cx="'+last.split(',')[0]+'" cy="'+last.split(',')[1]+'" r="6" fill="#eaf3fa"/>'}
 function renderAgents(rows,history){
  const grid=document.getElementById('agentgrid');
- (rows||[]).forEach(a=>{const card=grid.querySelector('[data-agent="'+a.id+'"]');if(!card)return;
- const st=card.querySelector('.agent-status');st.textContent=({active:'TÖÖTAB',working:'TÖÖS',limited:'PIIRATUD',blocked:'BLOKEERIB',waiting:'OOTAB',ootel:'OOTEL'}[a.status]||a.status||'OOTEL');st.className='agent-status '+(a.status||'');
- const p=card.querySelector('p');p.textContent=(a.task||a.goal||'')+' · '+(a.result||'Andmeid pole');
- card.title=(a.goal||'')+' Viimane uuendus: '+(a.updated||'puudub');
+ (rows||[]).forEach(a=>{
+  const card=grid.querySelector('[data-agent="'+a.id+'"]');if(!card)return;
+  card.classList.remove('state-active','state-working','state-limited','state-blocked','state-waiting');
+  card.classList.add('state-'+(a.status||'waiting'));
+  const st=card.querySelector('.agent-state');
+  const labels={active:'ONLINE',working:'ANALÜÜSIB',limited:'PIIRATUD',blocked:'BLOKEERIB',waiting:'OOTEL',ootel:'OOTEL'};
+  st.textContent=labels[a.status]||String(a.status||'ootel').toUpperCase();st.className='agent-state state-'+(a.status||'waiting');
+  const task=card.querySelector('.agent-task'),result=card.querySelector('.agent-result');
+  if(task)task.textContent=a.task||a.goal||'Ootab ülesannet';
+  if(result)result.textContent=a.result||'Andmeid pole veel kogutud';
+  const sym=card.querySelector('.agent-symbol');if(sym)sym.textContent=a.last_symbol?'TOKEN / '+a.last_symbol:'';
+  const bot=card.querySelector('.pixel-bot');if(bot)bot.title=(a.goal||'')+' · '+(a.status||'ootel');
+  const decision=card.querySelector('.decision-readout');
+  if(decision)decision.textContent=a.decision||'WAIT';
+  card.title=(a.goal||'')+' Viimane uuendus: '+(a.updated||'puudub');
  });
- const feed=(history||[]).slice(-8).reverse();
+ const feed=(history||[]).slice(-10).reverse();
  document.getElementById('agentfeed').innerHTML=feed.length?feed.map(x=>'<div class="agent-feed-line"><span><b>'+esc(x.agent)+'</b> · '+esc(x.message)+'</span><span>'+new Date(x.time).toLocaleTimeString()+'</span></div>').join(''):'<div class="agent-feed-empty">Ootan agentide esimesi päris analüüse…</div>';
 }
 async function refresh(){try{let r=await fetch('/api/live',{cache:'no-store'});if(!r.ok)throw Error('api '+r.status);let d=await r.json(),rg=d.rugcheck||{},ds=d.discovery||{};renderAgents(d.agents,d.agent_history);document.getElementById('live').textContent=d.paused?'Ⅱ peatatud':'● aktiivne · demo';document.getElementById('total').textContent=eur(d.total);document.getElementById('cash').textContent=eur(d.cash);document.getElementById('count').textContent=d.positions.length;document.getElementById('posvalue').textContent=eur(d.positions_value)+' praegune väärtus';document.getElementById('pnl').textContent=eur(d.realized_pnl);document.getElementById('closed').textContent=d.trades.length+' hiljutist suletud tehingut';eq.push(Number(d.total));if(eq.length>100)eq.shift();draw();document.getElementById('chartvalue').textContent=eur(d.total);let delta=Number(d.total)-1000;document.getElementById('chartchange').textContent=(delta>=0?'+':'')+eur(delta);document.getElementById('chartchange').className=delta>=0?'green':'red';document.getElementById('equitynote').textContent=eq.length+' mõõtmist alates lehe avamisest · graafik on seansipõhine';document.getElementById('pairs').textContent=d.pair_count+' / '+d.signal_count;document.getElementById('feedcount').textContent=Object.keys(ds.sources||{}).length||6;document.getElementById('updated').textContent='uuendatud '+new Date().toLocaleTimeString();document.getElementById('lastscan').textContent=d.last_scan==='not yet'?'pole veel skannitud':'viimane skannimine '+new Date(d.last_scan).toLocaleString();document.getElementById('viga').textContent=d.last_error||'';document.getElementById('crawlmarket').textContent=(ds.addresses||0)+' tokeniaadressi';document.getElementById('crawlrisks').textContent=(rg.checked||0)+' kontrollitud · '+(rg.blocked||0)+' blokeeritud';document.getElementById('crawlfeeds').textContent=Object.keys(ds.sources||{}).length+' andmeallikat';document.getElementById('candidates').innerHTML=d.candidates.length?d.candidates.map(x=>'<div class="item"><div style="flex:1;min-width:0"><b>'+esc(x.symbol)+'</b><div class="small">turukapitalisatsioon $'+Math.round(x.marketCap||0).toLocaleString()+' · likviidsus $'+Math.round(x.liquidity||0).toLocaleString()+' · 5 min maht $'+Math.round(x.volume5m||0).toLocaleString()+'</div><div class="small">allikad: '+esc((x.sources||[]).join(', '))+' · rugcheck '+esc(x.rugcheck?.status||'teadmata')+'</div>'+spark(x.history)+'<a href="'+esc(x.url)+'" target="_blank" rel="noopener" class="small">DexScreener ↗</a></div><div><b class="'+(Number(x.change5m)>=0?'green':'red')+'">'+pct(x.change5m)+'</b><div class="small">$'+Number(x.price).toPrecision(5)+'</div></div></div>').join(''):'<div class="empty">ükski token ei läbi praegu kõiki filtreid</div>';document.getElementById('positions').innerHTML=d.positions.length?d.positions.map(x=>'<div class="item"><div style="flex:1"><b>'+esc(x.symbol)+'</b><div class="small">sisenemishind $'+Number(x.entry).toPrecision(6)+' · praegu $'+Number(x.price).toPrecision(6)+'</div>'+spark(x.history)+'</div><div><b class="'+(x.pnl>=0?'green':'red')+'">'+eur(x.pnl)+'</b><div class="small">'+pct(x.pnl_pct)+'</div></div></div>').join(''):'<div class="empty">Avatud demopositsioone pole</div>';document.getElementById('trades').innerHTML=d.trades.length?d.trades.slice().reverse().map(x=>'<div class="item"><span><b>'+esc(x.symbol)+'</b><div class="small">'+new Date(x.closed_at).toLocaleString()+'</div></span><b class="'+(x.pnl>=0?'green':'red')+'">'+pct(x.pnl_pct)+' · '+eur(x.pnl)+'</b></div>').join(''):'<div class="empty">Suletud tehinguid pole</div>';document.getElementById('events').innerHTML=d.events.filter(x=>!/^skann valmis:/i.test(x.message||'')).slice(-12).reverse().map(x=>'<div class="logline"><span>'+esc(x.message)+'</span><span class="small">'+new Date(x.time).toLocaleTimeString()+'</span></div>').join('')||'Ämblik otsib uusi tokeneid ja kontrollib turvalisust…'}catch(e){document.getElementById('live').textContent='ühendus puudub';document.getElementById('viga').textContent=e.message}}refresh();setInterval(refresh,5000);
