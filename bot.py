@@ -19,7 +19,7 @@ MAX_POSITIONS = 8
 MAX_TRADES_PER_DAY = 30
 TAKE_PROFIT = 0.50
 STOP_LOSS = -0.10
-MIN_LIQUIDITY_USD = 10000
+MIN_LIQUIDITY_USD = 3000
 MIN_M5_VOLUME_USD = 3000
 MIN_M5_CHANGE = 5.0
 MAX_AGE_HOURS = 24
@@ -171,6 +171,8 @@ def scan_once():
             "price": p.get("priceUsd"),
             "change5m": (p.get("priceChange") or {}).get("m5",0),
             "volume5m": (p.get("volume") or {}).get("m5",0),
+            "buys5m": ((p.get("txns") or {}).get("m5") or {}).get("buys",0),
+            "sells5m": ((p.get("txns") or {}).get("m5") or {}).get("sells",0),
             "buys5m": ((p.get("txns") or {}).get("m5") or {}).get("buys",0),
             "sells5m": ((p.get("txns") or {}).get("m5") or {}).get("sells",0),
             "liquidity": (p.get("liquidity") or {}).get("usd",0),
