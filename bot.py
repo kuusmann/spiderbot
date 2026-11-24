@@ -25,7 +25,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Käsud: /status /portfolio /trades /pause /resume"
         )
     else:
-        await update.message.reply_text("Ligipääs puudub.")
+        await update.message.reply_text(
+            f"⛔ Ligipääs puudub. Sinu Telegrami kasutaja ID: {uid}\\n"
+            "Lisa see täpselt Renderi TELEGRAM_ALLOWED_USER_ID väärtuseks."
+        )
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
