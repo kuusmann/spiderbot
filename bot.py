@@ -977,7 +977,9 @@ def scan_once():
                 del state["positions"][address]
                 add_event(f"session exit {pos['symbol']} | {realized:+.2f} EUR")
 
-        apply_wallet_copy_signals(safe_candidates, pairs)\n\n        bought_symbol = None
+        apply_wallet_copy_signals(safe_candidates, pairs)
+
+        bought_symbol = None
         if not paused and not state.get("session_halted") and len(state["positions"]) < MAX_POSITIONS and state["daily_count"] < MAX_TRADES_PER_DAY:
             for candidate in safe_candidates:
                 address = (candidate.get("baseToken") or {}).get("address")
