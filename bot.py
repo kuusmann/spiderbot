@@ -1,4 +1,5 @@
-import os, json, time, logging, asyncio, threading, copy, xml.etree.ElementTree as ET
+import os, json, time, logging, asyncio, threading, copy, random, xml.etree.ElementTree as ET
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
@@ -14,18 +15,43 @@ ALLOWED_USER_ID = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 STATE_FILE = Path(os.environ.get("STATE_FILE", "/var/data/state.json"))
 STARTING_BALANCE = 1000.0
-MAX_TRADE_SIZE = 50.0
-MIN_TRADE_SIZE = 10.0
-MAX_POSITIONS = 8
-MAX_TRADES_PER_DAY = 30
-TAKE_PROFIT = 1.00
-STOP_LOSS = -0.12
-TRAIL_ACTIVATE = 0.08
-TRAIL_GIVEBACK = 0.06
-MIN_LIQUIDITY_USD = 3000
-MIN_M5_VOLUME_USD = 1000
-MIN_SCORE = 55
+POSITION_RISK_PCT = 0.075
+MAX_POSITIONS = 3
+MAX_TRADES_PER_DAY = 200
+SCALP_TAKE_PROFIT = 0.30
+SCALP_STOP_LOSS = -0.15
+TIME_STOP_SECONDS = 240
+FLAT_BAND_PCT = 0.03
+RUNNER_EVERY_NTH_ENTRY = 3
+RUNNER_HALF_TP = 0.50
+RUNNER_TRAIL_GIVEBACK = 0.25
+DAILY_STOP_LOSS_EUR = -200.0
+REDUCE_SIZE_AT_PROFIT_EUR = 500.0
+DAILY_TARGET_EUR = 2000.0
+SIM_SLIPPAGE_PCT = 0.035
+SIM_LATENCY_MS = 300
+SIM_FAILED_TX_RATE = 0.12
+SIM_TX_FEE_EUR = 0.10
+SIM_FAILED_TX_FEE_EUR = 0.05
+MIN_LIQUIDITY_USD = 25000.0
+MIN_MARKET_CAP_USD = 100000.0
+MAX_MARKET_CAP_USD = 2000000.0
+MIN_POOL_AGE_MINUTES = 5.0
+MAX_POOL_AGE_MINUTES = 60.0
+MIN_VOLUME_SPIKE_MULTIPLE = 3.0
+MIN_BUYER_SELLER_RATIO = 1.5
+MAX_TOP10_HOLDERS_PCT = 30.0
+MAX_DEV_HOLDER_PCT = 5.0
+MIN_LP_LOCKED_PCT = 95.0
+MAX_BUNDLE_CLUSTER_PCT = 20.0
+MAX_SINGLE_WALLET_VOLUME_PCT = 20.0
+MIN_HOLDER_GROWTH_PCT = 5.0
+MAX_10M_PRICE_GAIN_PCT = 100.0
+MAX_SELL_PRICE_IMPACT_PCT = 1.0
 SCAN_SECONDS = 10
+JUPITER_API_KEY = os.environ.get("JUPITER_API_KEY", "").strip()
+JUPITER_BASE = "https://api.jup.ag/swap/v2"
+SOL_MINT = "So11111111111111111111111111111111111111112"
 RUGCHECK_BASE = "https://api.rugcheck.xyz"
 RUGCHECK_CACHE_TTL = 900
 RUGCHECK_FAIL_TTL = 60
@@ -60,7 +86,7 @@ def update_agent(key, status, task, result, symbol=None, checks=None, decision=N
     agent_history.append({"agent":row["name"], "status":status, "message":f"{task}: {result}", "time":row["updated"], "symbol":symbol})
     del agent_history[:-60]
 state_lock = threading.RLock()
-state = {"cash": STARTING_BALANCE, "starting_balance": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0, "price_history": {}}
+state = {"cash": STARTING_BALANCE, "starting_balance": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0, "price_history": {}, "volume_history": {}, "holder_history": {}, "stopped_tokens": {}, "entry_count": 0, "day_start_equity": STARTING_BALANCE, "session_halted": False, "session_halt_reason": ""}
 persistence_ok = False
 persistence_error = "state not loaded"
 
