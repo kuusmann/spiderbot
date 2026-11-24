@@ -17,5 +17,7 @@ services:
         value: "2026286017"
       - key: DASHBOARD_PASSWORD
         sync: false
+      - key: JUPITER_API_KEY
+        sync: false
       - key: STATE_FILE
         value: /var/data/state.json
