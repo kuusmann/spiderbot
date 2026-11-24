@@ -59,8 +59,11 @@ def save_state():
 def authorized(update):
     return bool(ALLOWED_USER_ID) and str(update.effective_user.id) == ALLOWED_USER_ID
 
+async def send_text(update, message):
+    await update.message.reply_text(str(message).lower())
+
 async def reply_denied(update):
-    await update.message.reply_text(f"⛔ ligipääs puudub. sinu telegrami id: {update.effective_user.id}")
+    await send_text(update, f"⛔ ligipääs puudub. sinu telegrami id: {update.effective_user.id}")
 
 def get_json(url):
     r = requests.get(url, timeout=15, headers={"User-Agent":"SPIDER-BOT-paper/1.0"})
@@ -183,9 +186,9 @@ async def post_init(app):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ALLOWED_USER_ID:
-        await update.message.reply_text(f"SPIDER BOT online. Telegram ID: {update.effective_user.id}.")
+        await send_text(update, f"SPIDER BOT online. Telegram ID: {update.effective_user.id}.")
     elif authorized(update):
-        await update.message.reply_text("🕷️ spider bot aktiivne! paper demo €50.\nkäsud: /status /portfolio /trades /scan /pause /resume")
+        await send_text(update, "🕷️ spider bot aktiivne! paper demo €50.\nkäsud: /status /portfolio /trades /scan /pause /resume")
     else: await reply_denied(update)
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,35 +199,35 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"režiim: paper demo\nvaba raha: €{state['cash']:.2f}\npositsioonide väärtus: €{value:.2f}\n"
         f"avatud positsioonid: {len(state['positions'])}\nstop loss: -5% | skann: 15s | min turuväärtus: $10k\npaarid: {last_pair_count} | signaalid: {last_candidate_count}\n"
         f"viimane skann: {last_scan}\nskanneri viga: {last_error or 'puudub'}\npäris tehingud: väljas")
-    await update.message.reply_text(msg)
+    await send_text(update, msg)
 
 async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
     with state_lock:
         value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
-        await update.message.reply_text(f"📊 paper portfell\nCash: €{state['cash']:.2f}\nOpen positions: €{value:.2f}\nTotal: €{state['cash']+value:.2f}\nsuletud tehinguid: {len(state['trades'])}")
+        await send_text(update, f"📊 paper portfell\nCash: €{state['cash']:.2f}\nOpen positions: €{value:.2f}\nTotal: €{state['cash']+value:.2f}\nsuletud tehinguid: {len(state['trades'])}")
 
 async def trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
     with state_lock: rows = state["trades"][-8:]
-    if not rows: return await update.message.reply_text("suletud demotehinguid veel pole.")
-    await update.message.reply_text("📈 viimased demotehingud\n" + "\n".join(f"{x['symbol']}: {x['pnl_pct']*100:+.1f}% ({x['pnl']:+.2f} €)" for x in rows))
+    if not rows: return await send_text(update, "suletud demotehinguid veel pole.")
+    await send_text(update, "📈 viimased demotehingud\n" + "\n".join(f"{x['symbol']}: {x['pnl_pct']*100:+.1f}% ({x['pnl']:+.2f} €)" for x in rows))
 
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
-    await update.message.reply_text(f"Viimane skann: {last_scan}\nPaare: {last_pair_count}\nSignaale: {last_candidate_count}\nViga: {last_error or 'puudub'}")
+    await send_text(update, f"Viimane skann: {last_scan}\nPaare: {last_pair_count}\nSignaale: {last_candidate_count}\nViga: {last_error or 'puudub'}")
 
 async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global paused
     if not authorized(update): return await reply_denied(update)
     paused=True
-    await update.message.reply_text("⏸️ uued paper-ostud peatatud. avatud positsioone jälgitakse edasi.")
+    await send_text(update, "⏸️ uued paper-ostud peatatud. avatud positsioone jälgitakse edasi.")
 
 async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global paused
     if not authorized(update): return await reply_denied(update)
     paused=False
-    await update.message.reply_text("▶️ paper-mootor jätkab.")
+    await send_text(update, "▶️ paper-mootor jätkab.")
 
 web = Flask(__name__)
 def check_auth(auth):
