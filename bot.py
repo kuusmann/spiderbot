@@ -872,9 +872,15 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
     with state_lock:
         value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
-        msg = (f"🕷️ janobot status\ntelegram: connected\nmootor: {'pausil' if paused else 'töötab'}\n"
+        msg = (f"janobot status\ntelegram: connected\nmootor: {'pausil' if paused else 'töötab'}\n"
         f"režiim: paper demo\nvaba raha: €{state['cash']:.2f}\npositsioonide väärtus: €{value:.2f}\n"
-        f"avatud positsioonid: {len(state['positions'])}\nstop loss: {STOP_LOSS*100:.0f}% | kasumisiht: +{TAKE_PROFIT*100:.0f}% | skann: {SCAN_SECONDS}s | min turuväärtus: $10k\npaarid: {last_pair_count} | signaalid: {last_candidate_count}\n"
+        f"avatud positsioonid: {len(state['positions'])}/{MAX_POSITIONS}\n"
+        f"scalp TP +{SCALP_TAKE_PROFIT*100:.0f}% / SL {SCALP_STOP_LOSS*100:.0f}% / time stop {TIME_STOP_SECONDS//60}m\n"
+        f"runner: iga {RUNNER_EVERY_NTH_ENTRY}. sisenemine, pool +{RUNNER_HALF_TP*100:.0f}%, trail {RUNNER_TRAIL_GIVEBACK*100:.0f}%\n"
+        f"päeva PnL: {daily_pnl_unlocked():+.2f} € | sessioon: {'PEATATUD: '+state.get('session_halt_reason','') if state.get('session_halted') else 'aktiivne'}\n"
+        f"suurus: 7.5% equityst | päevane kaotuspiir: -€{abs(DAILY_STOP_LOSS_EUR):.0f} | kasumisiht: +€{DAILY_TARGET_EUR:.0f}\n"
+        f"simulatsioon: {SIM_SLIPPAGE_PCT*100:.1f}% slippage/külg, {SIM_LATENCY_MS}ms, {SIM_FAILED_TX_RATE*100:.0f}% fail\n"
+        f"paarid: {last_pair_count} | signaalid: {last_candidate_count}\n"
         f"viimane skann: {last_scan}\nskanneri viga: {last_error or 'puudub'}\npäris tehingud: väljas")
     await send_text(update, msg)
 
@@ -994,7 +1000,7 @@ def live_data():
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"min_market_cap":10000,"max_market_cap":None,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_score":MIN_SCORE,"stop_loss_pct":STOP_LOSS*100,"take_profit_pct":TAKE_PROFIT*100,"trail_activate_pct":TRAIL_ACTIVATE*100,"trail_giveback_pct":TRAIL_GIVEBACK*100,"scan_seconds":SCAN_SECONDS,"max_trade_size":MAX_TRADE_SIZE,"min_trade_size":MIN_TRADE_SIZE}}
+            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
     return jsonify(payload)
 
 def run_web():
