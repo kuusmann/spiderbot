@@ -14,16 +14,16 @@ ALLOWED_USER_ID = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 STATE_FILE = Path(os.environ.get("STATE_FILE", "/var/data/state.json"))
 STARTING_BALANCE = 50.0
-TRADE_SIZE = 5.0
+TRADE_SIZE = 2.5
 MAX_POSITIONS = 4
 MAX_TRADES_PER_DAY = 20
 TAKE_PROFIT = 0.20
-STOP_LOSS = -0.10
-MIN_LIQUIDITY_USD = 30000
-MIN_M5_VOLUME_USD = 5000
-MIN_M5_CHANGE = 6.0
-MAX_AGE_HOURS = 72
-SCAN_SECONDS = 60
+STOP_LOSS = -0.05
+MIN_LIQUIDITY_USD = 10000
+MIN_M5_VOLUME_USD = 1000
+MIN_M5_CHANGE = 2.0
+MAX_AGE_HOURS = 48
+SCAN_SECONDS = 15
 DEX = "https://api.dexscreener.com"
 paused = False
 last_scan = "not yet"
@@ -33,7 +33,7 @@ last_candidate_count = 0
 last_candidates = []
 events = []
 state_lock = threading.RLock()
-state = {"cash": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0}
+state = {"cash": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0, "price_history": {}}
 
 def add_event(message):
     events.append({"time": datetime.now(timezone.utc).isoformat(), "message": message})
@@ -91,13 +91,14 @@ def scan_once():
         try:
             if p.get("chainId") != "solana": continue
             liq = float((p.get("liquidity") or {}).get("usd") or 0)
+            market_cap = float(p.get("marketCap") or p.get("fdv") or 0)
             vol = float((p.get("volume") or {}).get("m5") or 0)
             change = float((p.get("priceChange") or {}).get("m5") or 0)
             age = pair_age_hours(p)
             price = float(p.get("priceUsd") or 0)
             address = (p.get("baseToken") or {}).get("address")
             if not address or price <= 0: continue
-            if liq >= MIN_LIQUIDITY_USD and vol >= MIN_M5_VOLUME_USD and change >= MIN_M5_CHANGE and age <= MAX_AGE_HOURS:
+            if market_cap >= 10000 and liq >= MIN_LIQUIDITY_USD and vol >= MIN_M5_VOLUME_USD and change >= MIN_M5_CHANGE and age <= MAX_AGE_HOURS:
                 eligible.append(p)
         except (TypeError, ValueError):
             continue
@@ -110,6 +111,9 @@ def scan_once():
             price = float(p.get("priceUsd") or 0)
             if price <= 0: continue
             pos["last_price"] = price
+            hist = state.setdefault("price_history", {}).setdefault(address, [])
+            hist.append({"t": int(time.time()), "p": price})
+            del hist[:-80]
             pnl_pct = price / pos["entry_price"] - 1
             if pnl_pct >= TAKE_PROFIT or pnl_pct <= STOP_LOSS:
                 proceeds = pos["quantity"] * price
@@ -131,7 +135,7 @@ def scan_once():
                 state["cash"] -= TRADE_SIZE
                 state["positions"][address] = {"symbol":symbol,"entry_price":price,"last_price":price,
                     "quantity":TRADE_SIZE/price,"cost":TRADE_SIZE,"opened_at":datetime.now(timezone.utc).isoformat(),
-                    "liquidity_usd":float((p.get("liquidity") or {}).get("usd") or 0)}
+                    "liquidity_usd":float((p.get("liquidity") or {}).get("usd") or 0), "market_cap":float(p.get("marketCap") or p.get("fdv") or 0)}
                 state["daily_count"] += 1
                 add_event(f"OST {symbol} | €{TRADE_SIZE:.2f} | momentum +{float((p.get('priceChange') or {}).get('m5') or 0):.1f}%")
                 if len(state["positions"]) >= MAX_POSITIONS: break
@@ -143,6 +147,8 @@ def scan_once():
             "change5m": (p.get("priceChange") or {}).get("m5",0),
             "volume5m": (p.get("volume") or {}).get("m5",0),
             "liquidity": (p.get("liquidity") or {}).get("usd",0),
+            "marketCap": p.get("marketCap") or p.get("fdv") or 0,
+            "history": state.setdefault("price_history", {}).setdefault((p.get("baseToken") or {}).get("address",""), [])[-60:],
             "address": (p.get("baseToken") or {}).get("address",""),
             "url": p.get("url","")
         } for p in eligible[:20]]
@@ -180,7 +186,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
         msg = (f"🕷️ SPIDER BOT STATUS\nTelegram: CONNECTED\nEngine: {'PAUSED' if paused else 'RUNNING'}\n"
         f"Mode: PAPER DEMO\nCash: €{state['cash']:.2f}\nPositions value: €{value:.2f}\n"
-        f"Open positions: {len(state['positions'])}\nPairs: {last_pair_count} | Signals: {last_candidate_count}\n"
+        f"Open positions: {len(state['positions'])}\nStop loss: -5% | Scan: 15s | Min market cap: $10k\nPairs: {last_pair_count} | Signals: {last_candidate_count}\n"
         f"Scanner last run: {last_scan}\nLast scanner error: {last_error or 'none'}\nReal trades: DISABLED")
     await update.message.reply_text(msg)
 
@@ -232,13 +238,13 @@ def live_data():
         for address, p in state["positions"].items():
             price = p.get("last_price",p["entry_price"])
             positions.append({"symbol":p["symbol"],"address":address,"entry":p["entry_price"],"price":price,
-                "pnl":p["quantity"]*price-p["cost"],"pnl_pct":(price/p["entry_price"]-1)*100})
+                "pnl":p["quantity"]*price-p["cost"],"pnl_pct":(price/p["entry_price"]-1)*100,"history":state.get("price_history",{}).get(address,[])})
         pos_value = sum(p["quantity"]*p.get("last_price",p["entry_price"]) for p in state["positions"].values())
         payload = {"cash":state["cash"],"positions_value":pos_value,"total":state["cash"]+pos_value,
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"paused":paused,"mode":"PAPER DEMO"}
+            "signal_count":last_candidate_count,"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"stop_loss_pct":STOP_LOSS*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
     return jsonify(payload)
 
 def run_web():
