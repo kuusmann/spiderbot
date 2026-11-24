@@ -43,7 +43,7 @@ last_candidates = []
 events = []
 AGENT_DEFS = {
     "uljas": {"name":"ULJAS","role":"Võimaluste otsija","goal":"Leiab uusi Solana tokenipaare ja filtreerib turuaktiivsuse järgi.","color":"#ffd23f"},
-    "teataja": {"name":"TEATAJA","role":"Uudiste ja katalüsaatorite uurija","goal":"Kontrollib projekti avalikke linke; reaalajas uudisvoog vajab eraldi allikat.","color":"#ff5964"},
+    "teataja": {"name":"TEATAJA","role":"Uudiste ja katalüsaatorite uurija","goal":"Uurib DEX-i projektilinke ja avalikke kogukonnasignaale; X-i tasuline API ei ole kasutusel.","color":"#ff5964"},
     "taju": {"name":"TAJU","role":"Turu meeleolu analüütik","goal":"Hindab ostu- ja müügisurvet päris tehinguandmete põhjal.","color":"#c66bff"},
     "teras": {"name":"TERAS","role":"Graafikute analüütik","goal":"Hindab hinnamomenti, volüümi ja võimalikku sisenemiskohta.","color":"#3298ff"},
     "valvur": {"name":"VALVUR","role":"Riskikaitsja","goal":"Kontrollib RugChecki riske ja blokeerib ohtlikud või kontrollimata tokenid.","color":"#31d98b"},
@@ -301,8 +301,28 @@ def scan_once():
     else:
         best_symbol, tech_result = None, "Ükski token ei ületanud praeguseid tehnilisi filtreid"
     update_agent("teras","active","Analüüsib hinnamomenti ja volüümi",tech_result,symbol=best_symbol,checks=len(pairs))
-    linked = sum(1 for p in eligible if (p.get("info") or {}).get("websites") or (p.get("info") or {}).get("socials"))
-    update_agent("teataja","limited","Kontrollib projekti avalikke linke",f"{linked}/{len(eligible)} kandidaadil on DEX-is veebileht või sotsiaalprofiil; uudisvoog pole ühendatud",checks=len(pairs))
+    linked = 0
+    x_links = 0
+    tg_links = 0
+    reddit_links = 0
+    for candidate in eligible:
+        info = candidate.get("info") or {}
+        websites = info.get("websites") or []
+        socials = info.get("socials") or []
+        urls = [str(x.get("url") or "") for x in websites + socials if isinstance(x, dict)]
+        if urls:
+            linked += 1
+        if any("x.com/" in u.lower() or "twitter.com/" in u.lower() for u in urls):
+            x_links += 1
+        if any("t.me/" in u.lower() or "telegram.me/" in u.lower() for u in urls):
+            tg_links += 1
+        if any("reddit.com/" in u.lower() for u in urls):
+            reddit_links += 1
+    teataja_status = "active" if linked else "limited"
+    teataja_result = (f"{linked}/{len(eligible)} kandidaadil projektilingid; "
+        f"X-profiile {x_links}, Telegrami linke {tg_links}, Redditi linke {reddit_links}. "
+        "X-i postitusi ei loeta (tasuline API); Redditi arutelusid ei loeta ilma ametliku tasuta API ligipääsuta.")
+    update_agent("teataja",teataja_status,"Kontrollib DEX-i projekti- ja kogukonnalinke",teataja_result,checks=len(pairs))
     rug_eligible = []
     rug_blocked = 0
     rug_checked = 0
@@ -329,7 +349,7 @@ def scan_once():
     else:
         jano_status, verdict, decision_text = "active", "BUY", f"{len(pending_buys)} kandidaati läbis tehnilised ja RugCheck filtrid; demotehingu lubamine"
     decision_symbol = (pending_buys[0].get("baseToken") or {}).get("symbol") if pending_buys else None
-    update_agent("jano",jano_status,"Koondab agentide tulemused",f"{verdict}: {decision_text}; Teataja uudisvoog pole veel ühendatud",symbol=decision_symbol,checks=len(pairs),decision=verdict)
+    update_agent("jano",jano_status,"Koondab agentide tulemused",f"{verdict}: {decision_text}; Teataja kontrollis projekti avalikke linke",symbol=decision_symbol,checks=len(pairs),decision=verdict)
     rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else ("unavailable" if rugcheck_stats["errors"] else "checking")
     with state_lock:
         if not persistence_ok:
