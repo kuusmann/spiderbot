@@ -381,3 +381,25 @@ refresh();setInterval(refresh,5000);setInterval(()=>$('clock').textContent=new D
 </script></body></html>
 /* Use the full command-panel width; remove the centered inner gutter */
 body.meme-desk main.desk .command-stage{width:100%!important;max-width:none!important;margin:5px 0 0!important;left:0!important;right:0!important}
+
+/* Final command-network proportions: centered stage, balanced agent scale */
+body.meme-desk main.desk .command-stage{
+  width:calc(100% - 28px)!important;
+  max-width:1180px!important;
+  height:clamp(340px,29vw,430px)!important;
+  margin:8px auto 2px!important;
+}
+body.meme-desk main.desk .agent{
+  width:clamp(180px,15.5vw,218px)!important;
+  min-height:66px;
+}
+body.meme-desk main.desk .core{width:118px;height:118px}
+@media(max-width:900px){
+  body.meme-desk main.desk .command-stage{width:100%!important;height:390px!important}
+  body.meme-desk main.desk .agent{width:clamp(150px,21vw,190px)!important}
+}
+@media(max-width:580px){
+  body.meme-desk main.desk .command-stage{width:100%!important;height:480px!important}
+  body.meme-desk main.desk .agent{width:125px!important;min-height:58px}
+  body.meme-desk main.desk .core{width:95px;height:95px}
+}
