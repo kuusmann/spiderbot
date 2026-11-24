@@ -49,12 +49,13 @@ AGENT_DEFS = {
     "valvur": {"name":"VALVUR","role":"Riskikaitsja","goal":"Kontrollib RugChecki riske ja blokeerib ohtlikud või kontrollimata tokenid.","color":"#31d98b"},
     "jano": {"name":"JANO","role":"Peajuht ja otsustaja","goal":"Koondab tõendid ning lubab ainult reeglitele vastava paper-tehingu.","color":"#ff9b35"},
 }
-agents = {key: {"id":key, **meta, "status":"ootel", "task":"Ootan esimest skanni", "result":"Andmeid pole veel kogutud", "updated":None, "checks":0, "last_symbol":None} for key,meta in AGENT_DEFS.items()}
+agents = {key: {"id":key, **meta, "status":"ootel", "task":"Ootan esimest skanni", "result":"Andmeid pole veel kogutud", "updated":None, "checks":0, "last_symbol":None, "decision":"WAIT"} for key,meta in AGENT_DEFS.items()}
 agent_history = []
-def update_agent(key, status, task, result, symbol=None, checks=None):
+def update_agent(key, status, task, result, symbol=None, checks=None, decision=None):
     row = agents[key]
     row.update({"status":status, "task":task, "result":str(result)[:260],
                 "updated":datetime.now(timezone.utc).isoformat(), "last_symbol":symbol})
+    if decision is not None: row["decision"] = decision
     if checks is not None: row["checks"] = int(checks)
     agent_history.append({"agent":row["name"], "status":status, "message":f"{task}: {result}", "time":row["updated"], "symbol":symbol})
     del agent_history[:-60]
@@ -261,22 +262,48 @@ def scan_once():
         except (TypeError, ValueError):
             continue
     eligible.sort(key=lambda p: float((p.get("volume") or {}).get("m5") or 0), reverse=True)
-    update_agent("taju","active","Hindab ostu- ja müügisurvet",f"{len(eligible)} kandidaati läbis mahu, hinnaliikumise ja ostu/müügi suhte filtrid",checks=len(pairs))
-    update_agent("teras","active","Analüüsib hinnamomenti ja volüümi",f"{len(eligible)} kandidaati vastab tehnilistele sisenemisfiltritele",checks=len(pairs))
+    buy_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("buys") or 0) for p in eligible)
+    sell_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("sells") or 0) for p in eligible)
+    pressure = buy_total / max(sell_total, 1)
+    update_agent("taju","active","Hindab ostu- ja müügisurvet",f"{len(eligible)} kandidaati; {buy_total} ostu / {sell_total} müüki 5 minutiga; suhe {pressure:.2f}",checks=len(pairs))
+    best = eligible[0] if eligible else None
+    if best:
+        best_symbol = (best.get("baseToken") or {}).get("symbol","?")
+        best_change = float((best.get("priceChange") or {}).get("m5") or 0)
+        best_volume = float((best.get("volume") or {}).get("m5") or 0)
+        tech_result = f"{best_symbol}: 5m muutus {best_change:+.1f}%; 5m maht USD {best_volume:,.0f}"
+    else:
+        best_symbol, tech_result = None, "Ükski token ei ületanud praeguseid tehnilisi filtreid"
+    update_agent("teras","active","Analüüsib hinnamomenti ja volüümi",tech_result,symbol=best_symbol,checks=len(pairs))
     linked = sum(1 for p in eligible if (p.get("info") or {}).get("websites") or (p.get("info") or {}).get("socials"))
     update_agent("teataja","limited","Kontrollib projekti avalikke linke",f"{linked}/{len(eligible)} kandidaadil on DEX-is veebileht või sotsiaalprofiil; uudisvoog pole ühendatud",checks=len(pairs))
     rug_eligible = []
+    rug_blocked = 0
+    rug_checked = 0
     for candidate in eligible[:20]:
+        rug_checked += 1
         token_address = (candidate.get("baseToken") or {}).get("address")
         passed, report = rugcheck_token(token_address)
         candidate["_rugcheck"] = report
         if passed:
             rug_eligible.append(candidate)
         else:
+            rug_blocked += 1
             add_event(f"rugcheck blokeeris {candidate.get('baseToken', {}).get('symbol', '?')}: {report.get('status')} | {report.get('reason', 'risk')}")
     eligible = rug_eligible
-    update_agent("valvur","active" if eligible else "blocked","Kontrollib tokenite riskiraporteid",f"RugCheck läbis {len(eligible)} kandidaati; riskikontrolli tulemuseta tokenid blokeeritakse",checks=len(eligible))
-    update_agent("jano","active" if eligible else "waiting","Koondab agentide tulemused",f"{len(eligible)} tokenit vastab praegustele BUY-filtritele; uudistevoog on veel ühendamata",checks=len(pairs))
+    risk_status = "active" if rug_checked else "waiting"
+    update_agent("valvur",risk_status,"Kontrollib tokenite riskiraporteid",f"Kontrollitud {rug_checked}; läbis {len(eligible)}; blokeeritud {rug_blocked}; puuduv raport = blokeering",checks=rug_checked)
+    pending_buys = [p for p in eligible if (p.get("baseToken") or {}).get("address") not in state.get("positions", {})]
+    if paused:
+        jano_status, verdict, decision_text = "waiting", "WAIT", "Ostud on kasutaja pausile pannud"
+    elif not pending_buys:
+        jano_status, verdict, decision_text = "waiting", "WAIT", "Kõik filtrid läbinud uut ostukandidaati praegu pole"
+    elif len(state.get("positions", {})) >= MAX_POSITIONS or state.get("cash", 0) < TRADE_SIZE or state.get("daily_count", 0) >= MAX_TRADES_PER_DAY:
+        jano_status, verdict, decision_text = "blocked", "SKIP", "Portfelli või päevase kauplemise piirang ei luba uut positsiooni"
+    else:
+        jano_status, verdict, decision_text = "active", "BUY", f"{len(pending_buys)} kandidaati läbis tehnilised ja RugCheck filtrid; demotehingu lubamine"
+    decision_symbol = (pending_buys[0].get("baseToken") or {}).get("symbol") if pending_buys else None
+    update_agent("jano",jano_status,"Koondab agentide tulemused",f"{verdict}: {decision_text}; Teataja uudisvoog pole veel ühendatud",symbol=decision_symbol,checks=len(pairs),decision=verdict)
     rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else ("unavailable" if rugcheck_stats["errors"] else "checking")
     with state_lock:
         history_map = state.setdefault("price_history", {})
