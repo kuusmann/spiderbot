@@ -314,7 +314,7 @@ def scan_once():
                 eligible.append(p)
         except (TypeError, ValueError):
             continue
-    eligible.sort(key=lambda p: float((p.get("volume") or {}).get("m5") or 0), reverse=True)
+    eligible.sort(key=lambda p: float(p.get("_strategy_score") or 0), reverse=True)
     buy_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("buys") or 0) for p in eligible)
     sell_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("sells") or 0) for p in eligible)
     pressure = buy_total / max(sell_total, 1)
@@ -394,7 +394,7 @@ def scan_once():
         jano_status, verdict, decision_text = "waiting", "WAIT", "Ostud on kasutaja pausile pannud"
     elif not pending_buys:
         jano_status, verdict, decision_text = "waiting", "WAIT", "Kõik filtrid läbinud uut ostukandidaati praegu pole"
-    elif len(state.get("positions", {})) >= MAX_POSITIONS or state.get("cash", 0) < TRADE_SIZE or state.get("daily_count", 0) >= MAX_TRADES_PER_DAY:
+    elif len(state.get("positions", {})) >= MAX_POSITIONS or state.get("cash", 0) < MIN_TRADE_SIZE or state.get("daily_count", 0) >= MAX_TRADES_PER_DAY:
         jano_status, verdict, decision_text = "blocked", "SKIP", "Portfelli või päevase kauplemise piirang ei luba uut positsiooni"
     else:
         news_hits = sum(1 for p in pending_buys if p.get("_news_matches"))
