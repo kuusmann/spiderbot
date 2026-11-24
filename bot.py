@@ -337,10 +337,20 @@ def discover_smart_wallets():
     found, errors = {}, []
     for sort_by in ("pnl","volume"):
         try:
+            params={"sort_by":sort_by,"interval":"1d","limit":20}
+            if sort_by=="pnl":
+                params["pnl_method"]="wac"
             response=requests.get("https://public-api.birdeye.so/wallet/v2/leaderboard",
-                params={"sort_by":sort_by,"interval":"1d","limit":20},
+                params=params,
                 headers={"X-API-KEY":BIRDEYE_API_KEY,"x-chain":"solana"},timeout=15)
-            response.raise_for_status()
+            if response.status_code == 429:
+                retry_after=response.headers.get("Retry-After","unknown")
+                errors.append("Birdeye "+sort_by+": rate limited (429); Retry-After="+retry_after)
+                continue
+            if not response.ok:
+                detail=(response.text or "")[:240].replace("\\n"," ")
+                errors.append("Birdeye "+sort_by+": HTTP "+str(response.status_code)+" "+detail)
+                continue
             payload=response.json()
             rows=(payload.get("data") or {}).get("items",[]) if isinstance(payload.get("data"),dict) else payload.get("data",[])
             for row in rows if isinstance(rows,list) else []:
@@ -348,7 +358,8 @@ def discover_smart_wallets():
                 if not address: continue
                 item=found.setdefault(address,{"address":address,"label":row.get("label") or row.get("name") or address[:7]+"…"+address[-5:],"sources":[],"pnl":row.get("pnl"),"volume":row.get("volume"),"score":0})
                 item["sources"].append("Birdeye "+sort_by); item["score"]+=1
-        except Exception as exc: errors.append("Birdeye "+sort_by+": "+str(exc)[:100])
+        except Exception as exc:
+            errors.append("Birdeye "+sort_by+": "+str(exc)[:180])
     with wallet_tracker_lock:
         old={w["address"]:w for w in wallet_tracker.get("wallets",[])}
         merged=[]
