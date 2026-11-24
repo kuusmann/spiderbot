@@ -55,7 +55,7 @@ HELIUS_API_KEY = os.environ.get("HELIUS_API_KEY", "").strip()
 WALLET_DISCOVERY_SECONDS = 900
 WALLET_POLL_SECONDS = 60
 MAX_TRACKED_WALLETS = 25
-wallet_tracker = {"status":"waiting","updated":None,"wallets":[],"signals":[],"errors":[],"last_discovery":None}
+wallet_tracker = {"status":"waiting","updated":None,"wallets":[],"signals":[],"errors":[],"discovery_errors":[],"poll_errors":[],"last_discovery":None}
 wallet_tracker_lock = threading.RLock()
 wallet_seen_signatures = {}
 
@@ -357,7 +357,8 @@ def discover_smart_wallets():
             item.update({"added_at":prev.get("added_at") or datetime.now(timezone.utc).isoformat(),"last_seen":prev.get("last_seen"),"last_action":prev.get("last_action"),"status":"tracking"})
             merged.append(item)
         merged += [w for a,w in old.items() if a not in found and w.get("manual")]
-        wallet_tracker.update({"wallets":merged[:MAX_TRACKED_WALLETS],"last_discovery":datetime.now(timezone.utc).isoformat(),"updated":datetime.now(timezone.utc).isoformat(),"errors":errors,"status":"live" if merged else ("no wallets found" if not errors else "source error")})
+        wallet_tracker.update({"wallets":merged[:MAX_TRACKED_WALLETS],"last_discovery":datetime.now(timezone.utc).isoformat(),"updated":datetime.now(timezone.utc).isoformat(),"discovery_errors":errors,"errors":errors+wallet_tracker.get("poll_errors",[]),"status":"live" if merged and not errors else ("source error" if errors else ("live" if merged else "no wallets found"))})
+    for error in errors: log.warning("Wallet discovery error: %s", error)
 
 def classify_wallet_swap(wallet, tx):
     transfers=tx.get("tokenTransfers") or []
@@ -405,8 +406,13 @@ def poll_tracked_wallets():
         with wallet_tracker_lock: wallet_tracker["signals"]=(signals+wallet_tracker.get("signals",[]))[:100]
         for x in signals: add_event(f"WALLET COPY SIGNAL {x['side']} {x['mint'][:8]} · {x['label']}")
     with wallet_tracker_lock:
-        wallet_tracker.update({"updated":datetime.now(timezone.utc).isoformat(),"errors":errors})
-        if wallet_tracker.get("wallets") and BIRDEYE_API_KEY and HELIUS_API_KEY: wallet_tracker["status"]="live"
+        discovery_errors=wallet_tracker.get("discovery_errors",[])
+        wallet_tracker.update({"updated":datetime.now(timezone.utc).isoformat(),"poll_errors":errors,"errors":discovery_errors+errors})
+        for error in errors: log.warning("Wallet activity poll error: %s", error)
+        if not HELIUS_API_KEY: wallet_tracker["status"]="needs HELIUS_API_KEY"
+        elif discovery_errors: wallet_tracker["status"]="source error"
+        elif wallet_tracker.get("wallets"): wallet_tracker["status"]="live"
+        else: wallet_tracker["status"]="no wallets found"
 
 def wallet_tracker_loop():
     last_discovery=0
