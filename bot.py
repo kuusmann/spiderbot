@@ -15,8 +15,8 @@ ALLOWED_USER_ID = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 STATE_FILE = Path(os.environ.get("STATE_FILE", "/var/data/state.json"))
 STARTING_BALANCE = 1000.0
-POSITION_RISK_PCT = 0.075
-MAX_POSITIONS = 3
+POSITION_RISK_PCT = 0.035
+MAX_POSITIONS = 10
 MAX_TRADES_PER_DAY = 200
 SCALP_TAKE_PROFIT = 0.30
 SCALP_STOP_LOSS = -0.15
@@ -33,20 +33,20 @@ SIM_LATENCY_MS = 300
 SIM_FAILED_TX_RATE = 0.12
 SIM_TX_FEE_EUR = 0.10
 SIM_FAILED_TX_FEE_EUR = 0.05
-MIN_LIQUIDITY_USD = 15000.0
-MIN_MARKET_CAP_USD = 50000.0
-MAX_MARKET_CAP_USD = 5000000.0
-MIN_POOL_AGE_MINUTES = 3.0
-MAX_POOL_AGE_MINUTES = 90.0
+MIN_LIQUIDITY_USD = 8000.0
+MIN_MARKET_CAP_USD = 20000.0
+MAX_MARKET_CAP_USD = 20000000.0
+MIN_POOL_AGE_MINUTES = 2.0
+MAX_POOL_AGE_MINUTES = 1440.0
 MIN_VOLUME_SPIKE_MULTIPLE = 2.0
-MIN_BUYER_SELLER_RATIO = 1.2
-MAX_TOP10_HOLDERS_PCT = 40.0
-MAX_DEV_HOLDER_PCT = 7.0
+MIN_BUYER_SELLER_RATIO = 0.7
+MAX_TOP10_HOLDERS_PCT = 30.0
+MAX_DEV_HOLDER_PCT = 5.0
 MIN_LP_LOCKED_PCT = 80.0
 MAX_BUNDLE_CLUSTER_PCT = 25.0
 MAX_SINGLE_WALLET_VOLUME_PCT = 25.0
 MIN_HOLDER_GROWTH_PCT = 3.0
-MAX_10M_PRICE_GAIN_PCT = 150.0
+MAX_10M_PRICE_GAIN_PCT = 100.0
 MAX_SELL_PRICE_IMPACT_PCT = 2.0
 SCAN_SECONDS = 10
 JUPITER_API_KEY = os.environ.get("JUPITER_API_KEY", "").strip()
@@ -729,17 +729,18 @@ def scan_once():
             change5 = float((pair.get("priceChange") or {}).get("m5") or 0)
             if not address or price <= 0:
                 continue
-            # Pair age is a proxy; DexScreener does not expose migration timestamps.
+            # Broad-entry mode: scan a wider range, but retain minimum market depth and real activity.
+            # RugCheck + strict_safety_check below remain mandatory and fail closed.
             if pool_age is None or not (MIN_POOL_AGE_MINUTES <= pool_age <= MAX_POOL_AGE_MINUTES):
                 continue
             if not (MIN_MARKET_CAP_USD <= market_cap <= MAX_MARKET_CAP_USD):
                 continue
             if liquidity < MIN_LIQUIDITY_USD:
                 continue
-            # Use observable DexScreener activity; do not wait 20 minutes for a private volume baseline.
-            if volume5 < 1000 or buys < 3 or buys / max(sells, 1) < MIN_BUYER_SELLER_RATIO:
+            if volume5 < 250 or buys < 1 or buys / max(sells, 1) < MIN_BUYER_SELLER_RATIO:
                 continue
-            if change5 <= 0:
+            # Avoid obvious free-falls and already vertical candles, without requiring green 5m momentum.
+            if change5 < -8:
                 continue
             if gain_10m is not None and gain_10m > MAX_10M_PRICE_GAIN_PCT:
                 continue
