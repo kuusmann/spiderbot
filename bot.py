@@ -26,6 +26,13 @@ MAX_AGE_HOURS = 24
 SCAN_SECONDS = 10
 MAX_MARKET_CAP_USD = 300000
 MIN_BUY_SELL_RATIO = 1.2
+RUGCHECK_BASE = "https://api.rugcheck.xyz"
+RUGCHECK_CACHE_TTL = 900
+RUGCHECK_FAIL_TTL = 60
+RUGCHECK_MAX_SCORE = 40
+rugcheck_cache = {}
+rugcheck_last_request = 0.0
+rugcheck_stats = {"checked": 0, "passed": 0, "blocked": 0, "errors": 0, "status": "starting"}
 DEX = "https://api.dexscreener.com"
 paused = False
 last_scan = "not yet"
@@ -78,6 +85,52 @@ def get_json(url):
     r.raise_for_status()
     return r.json()
 
+def rugcheck_token(address):
+    """Return (passed, report summary). Fail closed when RugCheck is unavailable."""
+    global rugcheck_last_request
+    now = time.time()
+    cached = rugcheck_cache.get(address)
+    if cached and now - cached["time"] < cached["ttl"]:
+        return cached["passed"], cached["data"]
+    # Stay below the public API's documented free-tier request rate.
+    delay = 0.42 - (time.monotonic() - rugcheck_last_request)
+    if delay > 0:
+        time.sleep(delay)
+    try:
+        response = requests.get(
+            f"{RUGCHECK_BASE}/v1/tokens/{address}/report/summary",
+            timeout=8,
+            headers={"Accept": "application/json", "User-Agent": "SPIDER-BOT-paper/1.0"},
+        )
+        rugcheck_last_request = time.monotonic()
+        response.raise_for_status()
+        report = response.json()
+        if not isinstance(report, dict) or report.get("error") or report.get("score_normalised") is None:
+            raise ValueError("RugCheck returned an incomplete report")
+        score = float(report["score_normalised"])
+        risks = report.get("risks") or []
+        danger = [r for r in risks if str(r.get("level", "")).lower() in ("danger", "critical", "high")]
+        passed = score < RUGCHECK_MAX_SCORE and not danger
+        data = {
+            "score": score,
+            "raw_score": report.get("score"),
+            "lp_locked_pct": report.get("lpLockedPct"),
+            "risk_count": len(risks),
+            "danger_count": len(danger),
+            "risks": [{"name": r.get("name", ""), "level": r.get("level", ""), "description": r.get("description", "")} for r in risks[:5]],
+            "status": "passed" if passed else "blocked",
+            "reason": "risk score too high or danger finding" if not passed else "risk screen passed",
+        }
+        rugcheck_cache[address] = {"time": now, "ttl": RUGCHECK_CACHE_TTL, "passed": passed, "data": data}
+        rugcheck_stats["checked"] += 1
+        rugcheck_stats["passed" if passed else "blocked"] += 1
+        return passed, data
+    except Exception as exc:
+        data = {"status": "unavailable", "reason": str(exc)[:160], "score": None, "risk_count": 0, "danger_count": 0, "risks": []}
+        rugcheck_cache[address] = {"time": now, "ttl": RUGCHECK_FAIL_TTL, "passed": False, "data": data}
+        rugcheck_stats["errors"] += 1
+        return False, data
+
 def discover_candidates():
     profiles = get_json(f"{DEX}/token-profiles/latest/v1")
     addresses = list(dict.fromkeys(x.get("tokenAddress") for x in profiles
@@ -120,6 +173,17 @@ def scan_once():
         except (TypeError, ValueError):
             continue
     eligible.sort(key=lambda p: float((p.get("volume") or {}).get("m5") or 0), reverse=True)
+    rug_eligible = []
+    for candidate in eligible[:20]:
+        token_address = (candidate.get("baseToken") or {}).get("address")
+        passed, report = rugcheck_token(token_address)
+        candidate["_rugcheck"] = report
+        if passed:
+            rug_eligible.append(candidate)
+        else:
+            add_event(f"rugcheck blokeeris {candidate.get('baseToken', {}).get('symbol', '?')}: {report.get('status')} | {report.get('reason', 'risk')}")
+    eligible = rug_eligible
+    rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else "checking"
     with state_lock:
         history_map = state.setdefault("price_history", {})
         for candidate in eligible[:20]:
@@ -179,7 +243,8 @@ def scan_once():
             "marketCap": p.get("marketCap") or p.get("fdv") or 0,
             "history": state.setdefault("price_history", {}).setdefault((p.get("baseToken") or {}).get("address",""), [])[-60:],
             "address": (p.get("baseToken") or {}).get("address",""),
-            "url": p.get("url","")
+            "url": p.get("url",""),
+            "rugcheck": p.get("_rugcheck", {"status":"not_checked"})
         } for p in eligible[:20]]
         last_pair_count, last_candidate_count = len(pairs), len(eligible)
         last_scan = datetime.now(timezone.utc).isoformat()
@@ -273,7 +338,7 @@ def live_data():
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
+            "signal_count":last_candidate_count,"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
     return jsonify(payload)
 
 def run_web():
