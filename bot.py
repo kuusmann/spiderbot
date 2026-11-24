@@ -50,6 +50,15 @@ MAX_10M_PRICE_GAIN_PCT = 150.0
 MAX_SELL_PRICE_IMPACT_PCT = 2.0
 SCAN_SECONDS = 10
 JUPITER_API_KEY = os.environ.get("JUPITER_API_KEY", "").strip()
+BIRDEYE_API_KEY = os.environ.get("BIRDEYE_API_KEY", "").strip()
+HELIUS_API_KEY = os.environ.get("HELIUS_API_KEY", "").strip()
+WALLET_DISCOVERY_SECONDS = 900
+WALLET_POLL_SECONDS = 60
+MAX_TRACKED_WALLETS = 25
+wallet_tracker = {"status":"waiting","updated":None,"wallets":[],"signals":[],"errors":[],"last_discovery":None}
+wallet_tracker_lock = threading.RLock()
+wallet_seen_signatures = {}
+
 JUPITER_BASE = "https://api.jup.ag/swap/v2"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 RUGCHECK_BASE = "https://api.rugcheck.xyz"
@@ -318,6 +327,98 @@ def jupiter_sell_simulation(token_address, price_usd, notional_eur, report):
         return True, f"Jupiter sell route ok; impact {impact_pct:.2f}%"
     except Exception as exc:
         return False, f"sell quote unavailable: {str(exc)[:120]}"
+
+
+def discover_smart_wallets():
+    if not BIRDEYE_API_KEY:
+        with wallet_tracker_lock:
+            wallet_tracker.update({"status":"needs BIRDEYE_API_KEY","updated":datetime.now(timezone.utc).isoformat()})
+        return
+    found, errors = {}, []
+    for sort_by in ("pnl","volume"):
+        try:
+            response=requests.get("https://public-api.birdeye.so/wallet/v2/leaderboard",
+                params={"sort_by":sort_by,"interval":"1d","limit":20},
+                headers={"X-API-KEY":BIRDEYE_API_KEY,"x-chain":"solana"},timeout=15)
+            response.raise_for_status()
+            payload=response.json()
+            rows=(payload.get("data") or {}).get("items",[]) if isinstance(payload.get("data"),dict) else payload.get("data",[])
+            for row in rows if isinstance(rows,list) else []:
+                address=row.get("wallet") or row.get("address") or row.get("owner")
+                if not address: continue
+                item=found.setdefault(address,{"address":address,"label":row.get("label") or row.get("name") or address[:7]+"…"+address[-5:],"sources":[],"pnl":row.get("pnl"),"volume":row.get("volume"),"score":0})
+                item["sources"].append("Birdeye "+sort_by); item["score"]+=1
+        except Exception as exc: errors.append("Birdeye "+sort_by+": "+str(exc)[:100])
+    with wallet_tracker_lock:
+        old={w["address"]:w for w in wallet_tracker.get("wallets",[])}
+        merged=[]
+        for item in sorted(found.values(),key=lambda x:(x["score"],float(x.get("pnl") or 0)),reverse=True):
+            prev=old.get(item["address"],{})
+            item.update({"added_at":prev.get("added_at") or datetime.now(timezone.utc).isoformat(),"last_seen":prev.get("last_seen"),"last_action":prev.get("last_action"),"status":"tracking"})
+            merged.append(item)
+        merged += [w for a,w in old.items() if a not in found and w.get("manual")]
+        wallet_tracker.update({"wallets":merged[:MAX_TRACKED_WALLETS],"last_discovery":datetime.now(timezone.utc).isoformat(),"updated":datetime.now(timezone.utc).isoformat(),"errors":errors,"status":"live" if merged else ("no wallets found" if not errors else "source error")})
+
+def classify_wallet_swap(wallet, tx):
+    transfers=tx.get("tokenTransfers") or []
+    received=[x for x in transfers if x.get("toUserAccount")==wallet and x.get("mint") and float(x.get("tokenAmount") or 0)>0]
+    sent=[x for x in transfers if x.get("fromUserAccount")==wallet and x.get("mint") and float(x.get("tokenAmount") or 0)>0]
+    sol_mints={SOL_MINT,"So11111111111111111111111111111111111111111"}
+    buy=next((x for x in received if x["mint"] not in sol_mints),None)
+    spent_sol=any(x["mint"] in sol_mints for x in sent)
+    sell=next((x for x in sent if x["mint"] not in sol_mints),None)
+    got_sol=any(x["mint"] in sol_mints for x in received)
+    if buy and spent_sol: return "BUY",buy["mint"],float(buy.get("tokenAmount") or 0)
+    if sell and got_sol: return "SELL",sell["mint"],float(sell.get("tokenAmount") or 0)
+    return None
+
+def poll_tracked_wallets():
+    if not HELIUS_API_KEY:
+        with wallet_tracker_lock:
+            wallet_tracker.update({"status":"needs HELIUS_API_KEY","updated":datetime.now(timezone.utc).isoformat()})
+        return
+    with wallet_tracker_lock: wallets=list(wallet_tracker.get("wallets",[]))
+    signals,errors=[],[]
+    for wallet in wallets[:MAX_TRACKED_WALLETS]:
+        address=wallet.get("address")
+        if not address: continue
+        try:
+            response=requests.get(f"https://api-mainnet.helius-rpc.com/v0/addresses/{address}/transactions",
+                params={"api-key":HELIUS_API_KEY,"limit":20},timeout=15)
+            response.raise_for_status(); rows=response.json()
+            if not isinstance(rows,list): continue
+            seen=wallet_seen_signatures.setdefault(address,set())
+            for tx in reversed(rows):
+                sig=tx.get("signature")
+                if not sig or sig in seen: continue
+                seen.add(sig)
+                if len(seen)>500: wallet_seen_signatures[address]=set(list(seen)[-250:])
+                if tx.get("type")!="SWAP": continue
+                action=classify_wallet_swap(address,tx)
+                if not action: continue
+                side,mint,amount=action
+                signals.append({"wallet":address,"label":wallet.get("label",address[:8]),"side":side,"mint":mint,"amount":amount,"signature":sig,"time":datetime.fromtimestamp(float(tx.get("timestamp") or time.time()),timezone.utc).isoformat()})
+                wallet["last_seen"]=signals[-1]["time"]; wallet["last_action"]=side+" "+mint[:8]
+            wallet["status"]="tracking"
+        except Exception as exc: errors.append(address[:8]+": "+str(exc)[:100])
+    if signals:
+        with wallet_tracker_lock: wallet_tracker["signals"]=(signals+wallet_tracker.get("signals",[]))[:100]
+        for x in signals: add_event(f"WALLET COPY SIGNAL {x['side']} {x['mint'][:8]} · {x['label']}")
+    with wallet_tracker_lock:
+        wallet_tracker.update({"updated":datetime.now(timezone.utc).isoformat(),"errors":errors})
+        if wallet_tracker.get("wallets") and BIRDEYE_API_KEY and HELIUS_API_KEY: wallet_tracker["status"]="live"
+
+def wallet_tracker_loop():
+    last_discovery=0
+    while True:
+        try:
+            if time.time()-last_discovery>=WALLET_DISCOVERY_SECONDS:
+                discover_smart_wallets(); last_discovery=time.time()
+            poll_tracked_wallets()
+        except Exception as exc:
+            with wallet_tracker_lock: wallet_tracker.update({"status":"error","errors":[str(exc)[:160]]})
+            log.exception("Wallet tracker failed")
+        time.sleep(WALLET_POLL_SECONDS)
 
 def simulated_fill(side, market_price):
     time.sleep(SIM_LATENCY_MS / 1000.0)
@@ -902,6 +1003,16 @@ async def trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not rows: return await send_text(update, "suletud demotehinguid veel pole.")
     await send_text(update, "📈 viimased demotehingud\n" + "\n".join(f"{x['symbol']}: {x['pnl_pct']*100:+.1f}% ({x['pnl']:+.2f} €)" for x in rows))
 
+
+async def wallets_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not authorized(update): return await reply_denied(update)
+    with wallet_tracker_lock:
+        rows=list(wallet_tracker.get("wallets",[])); signals=list(wallet_tracker.get("signals",[]))[:5]; status_text=wallet_tracker.get("status","waiting")
+    lines=[f"wallet tracker: {status_text}",f"jälgitavaid: {len(rows)}"]
+    lines += [f"{w.get('label')} · pnl {w.get('pnl') or 'n/a'} · {w.get('last_action') or 'ootab'}" for w in rows[:10]]
+    lines += ["viimased signaalid:"] + [f"{x['side']} {x['mint'][:8]} · {x['label']}" for x in signals]
+    await send_text(update,"\\n".join(lines))
+
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
     await send_text(update, f"Viimane skann: {last_scan}\nPaare: {last_pair_count}\nSignaale: {last_candidate_count}\nViga: {last_error or 'puudub'}")
@@ -995,6 +1106,8 @@ def news_data():
 @web.get("/api/live")
 def live_data():
     if not check_auth(request.authorization): return auth_required()
+    with wallet_tracker_lock:
+        wallet_payload = copy.deepcopy(wallet_tracker)
     with state_lock:
         positions = []
         for address, p in state["positions"].items():
@@ -1005,7 +1118,7 @@ def live_data():
         payload = {"cash":state["cash"],"positions_value":pos_value,"total":state["cash"]+pos_value,
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],
-            "candidates":last_candidates,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
+            "candidates":last_candidates,"wallet_tracker":wallet_payload,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
             "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
     return jsonify(payload)
@@ -1017,9 +1130,10 @@ def main():
     if not TOKEN: raise RuntimeError("Missing TELEGRAM_BOT_TOKEN")
     load_state()
     threading.Thread(target=news_loop, daemon=True).start()
+    threading.Thread(target=wallet_tracker_loop, daemon=True).start()
     threading.Thread(target=run_web, daemon=True).start()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
-    for cmd, fn in [("start",start),("status",status),("portfolio",portfolio),("trades",trades),("scan",scan),("pause",pause_cmd),("resume",resume_cmd)]:
+    for cmd, fn in [("start",start),("status",status),("portfolio",portfolio),("trades",trades),("scan",scan),("wallets",wallets_cmd),("pause",pause_cmd),("resume",resume_cmd)]:
         app.add_handler(CommandHandler(cmd,fn))
     add_event("janobot käivitus; paper demo")
     app.run_polling(drop_pending_updates=True)
