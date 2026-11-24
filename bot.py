@@ -337,12 +337,20 @@ def discover_smart_wallets():
     found, errors = {}, []
     for sort_by in ("pnl","volume"):
         try:
-            params={"sort_by":sort_by,"interval":"1d","limit":20}
+            params={"sort_by":sort_by,"interval":"24h","limit":20}
             if sort_by=="pnl":
                 params["pnl_method"]="wac"
             response=requests.get("https://public-api.birdeye.so/wallet/v2/leaderboard",
                 params=params,
                 headers={"X-API-KEY":BIRDEYE_API_KEY,"x-chain":"solana"},timeout=15)
+            if response.status_code == 429:
+                retry_after=response.headers.get("Retry-After","1")
+                try: wait_seconds=max(1,min(10,float(retry_after)))
+                except (TypeError,ValueError): wait_seconds=1
+                time.sleep(wait_seconds)
+                response=requests.get("https://public-api.birdeye.so/wallet/v2/leaderboard",
+                    params=params,
+                    headers={"X-API-KEY":BIRDEYE_API_KEY,"x-chain":"solana"},timeout=15)
             if response.status_code == 429:
                 retry_after=response.headers.get("Retry-After","unknown")
                 errors.append("Birdeye "+sort_by+": rate limited (429); Retry-After="+retry_after)
