@@ -335,11 +335,9 @@ def discover_smart_wallets():
             wallet_tracker.update({"status":"needs BIRDEYE_API_KEY","updated":datetime.now(timezone.utc).isoformat()})
         return
     found, errors = {}, []
-    for sort_by in ("pnl","volume"):
+    for sort_by in ("realized_pnl","volume_usd"):
         try:
             params={"sort_by":sort_by,"interval":"24h","limit":20}
-            if sort_by=="pnl":
-                params["pnl_method"]="wac"
             response=requests.get("https://public-api.birdeye.so/wallet/v2/leaderboard",
                 params=params,
                 headers={"X-API-KEY":BIRDEYE_API_KEY,"x-chain":"solana"},timeout=15)
