@@ -434,3 +434,32 @@ body.meme-desk main.desk .agent{
   body.meme-desk main.desk .a2,
   body.meme-desk main.desk .a5{left:calc(50% - 62px)!important}
 }
+
+/* Make agent cards visibly larger and easier to read */
+@media(min-width:901px){
+  body.meme-desk main.desk .agent{
+    width:clamp(245px,22vw,295px)!important;
+    min-height:86px!important;
+    padding:15px 17px!important;
+    gap:7px 10px!important;
+  }
+  body.meme-desk main.desk .a2,
+  body.meme-desk main.desk .a5{left:calc(50% - 147px)!important}
+  body.meme-desk main.desk .agent b{font-size:13px!important}
+  body.meme-desk main.desk .agent small,
+  body.meme-desk main.desk .agent em{font-size:9px!important}
+  body.meme-desk main.desk .agent span{font-size:9px!important}
+}
+@media(min-width:581px) and (max-width:900px){
+  body.meme-desk main.desk .agent{
+    width:clamp(185px,24vw,220px)!important;
+    min-height:78px!important;
+    padding:12px 13px!important;
+  }
+  body.meme-desk main.desk .a2,
+  body.meme-desk main.desk .a5{left:calc(50% - 110px)!important}
+  body.meme-desk main.desk .agent b{font-size:12px!important}
+  body.meme-desk main.desk .agent small,
+  body.meme-desk main.desk .agent em,
+  body.meme-desk main.desk .agent span{font-size:8px!important}
+}
