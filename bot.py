@@ -528,233 +528,322 @@ def pair_age_hours(pair):
     return max(0, (time.time()*1000 - float(created))/3600000)
 
 def score_candidate(pair):
-    """Heuristic short-term score; 0-100, not a prediction."""
-    price = float(pair.get("priceUsd") or 0)
-    liq = float((pair.get("liquidity") or {}).get("usd") or 0)
-    v5 = float((pair.get("volume") or {}).get("m5") or 0)
-    v1 = float((pair.get("volume") or {}).get("h1") or 0)
-    ch = pair.get("priceChange") or {}
-    m5, h1, h6 = float(ch.get("m5") or 0), float(ch.get("h1") or 0), float(ch.get("h6") or 0)
     tx = (pair.get("txns") or {}).get("m5") or {}
-    buys, sells = int(tx.get("buys") or 0), int(tx.get("sells") or 0)
-    ratio, total = buys / max(sells, 1), buys + sells
-    if price <= 0 or liq < MIN_LIQUIDITY_USD or v5 < MIN_M5_VOLUME_USD or total < 4:
-        return 0, "low activity", ratio
-    score = min(20, (liq / 3000) ** 0.5 * 5) + min(20, (v5 / 1000) ** 0.5 * 4)
-    score += min(15, ratio * 5) + min(10, total * 1.2)
-    if h1 > 0 and h6 > -5: score += min(15, h1 * 1.2)
-    if 1 <= m5 <= 12 and h1 > 0:
-        score += 15
-        setup = "momentum"
-    elif -8 <= m5 < 1 and h1 >= 2 and h6 > -8 and ratio >= 1:
-        score += 18
-        setup = "dip-buy"
-    elif m5 > 12:
-        score -= 12
-        setup = "overheated"
-    else:
-        setup = "mixed"
-    if v1 > 0 and v5 / max(v1, 1) > 0.8: score += 5
-    return min(100, max(0, score)), setup, ratio
+    buys = int(tx.get("buys") or 0)
+    sells = int(tx.get("sells") or 0)
+    return buys / max(sells, 1), "momentum", buys / max(sells, 1)
 
-def dynamic_trade_size(score, cash):
-    wanted = 50 if score >= 82 else 40 if score >= 72 else 25 if score >= 64 else 10
-    return round(min(MAX_TRADE_SIZE, wanted, cash), 2)
+def dynamic_trade_size(equity, daily_pnl):
+    fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)
+    return round(max(0.0, min(float(equity) * fraction, float(state.get("cash", 0)) - SIM_TX_FEE_EUR)), 2)
+
 def scan_once():
     global last_scan, last_error, last_pair_count, last_candidate_count, last_candidates
-    update_agent("uljas","working","Otsib uusi Solana paare","Laeb DEX Screeneri ja GeckoTerminali vooge")
+    update_agent("uljas","working","Otsib Solana migrated/trending pools","Laeb uusi ja trending basseine")
     pairs = discover_candidates()
+    now = time.time()
+    market_features = update_market_snapshots(pairs)
     update_agent("uljas","active","Skaneeris turgu",f"{len(pairs)} paari; {len(discovery_cache.get('addresses',[]))} tokeniaadressi",checks=len(pairs))
-    eligible = []
-    for p in pairs:
+
+    local_candidates = []
+    for pair in pairs:
         try:
-            if p.get("chainId") != "solana": continue
-            address = (p.get("baseToken") or {}).get("address")
-            price = float(p.get("priceUsd") or 0)
-            market_cap = float(p.get("marketCap") or p.get("fdv") or 0)
-            if not address or price <= 0 or market_cap < 10000: continue
-            score, setup, ratio = score_candidate(p)
-            if score >= MIN_SCORE:
-                p["_strategy_score"] = round(score, 1)
-                p["_setup"] = setup
-                p["_buy_sell_ratio"] = round(ratio, 2)
-                eligible.append(p)
+            if pair.get("chainId") != "solana":
+                continue
+            token = pair.get("baseToken") or {}
+            address = token.get("address")
+            price = float(pair.get("priceUsd") or 0)
+            market_cap = float(pair.get("marketCap") or pair.get("fdv") or 0)
+            liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
+            created = float(pair.get("pairCreatedAt") or 0) / 1000
+            pool_age = (now - created) / 60 if created else None
+            features = market_features.get(address, {})
+            volume_multiple = features.get("volume_multiple")
+            gain_10m = features.get("gain_10m_pct")
+            if not address or price <= 0:
+                continue
+            # Pair age is a proxy; the feed does not identify migration timestamps.
+            if pool_age is None or not (MIN_POOL_AGE_MINUTES <= pool_age <= MAX_POOL_AGE_MINUTES):
+                continue
+            if not (MIN_MARKET_CAP_USD <= market_cap <= MAX_MARKET_CAP_USD):
+                continue
+            if liquidity < MIN_LIQUIDITY_USD:
+                continue
+            if volume_multiple is None or volume_multiple < MIN_VOLUME_SPIKE_MULTIPLE:
+                continue
+            if not features.get("breakout") or not features.get("above_60pct_high"):
+                continue
+            if gain_10m is None or gain_10m > MAX_10M_PRICE_GAIN_PCT:
+                continue
+            if address in state.get("stopped_tokens", {}):
+                continue
+            pair["_momentum"] = {
+                "volume_multiple": round(float(volume_multiple), 2),
+                "pool_age_minutes": round(pool_age, 1),
+                "observed_high": features.get("observed_high"),
+                "price_gain_10m_pct": round(float(gain_10m), 1)
+            }
+            score, setup, ratio = score_candidate(pair)
+            pair["_score"], pair["_setup"], pair["_buy_sell_ratio"] = score, setup, ratio
+            local_candidates.append(pair)
         except (TypeError, ValueError):
             continue
-    eligible.sort(key=lambda p: float(p.get("_strategy_score") or 0), reverse=True)
-    buy_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("buys") or 0) for p in eligible)
-    sell_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("sells") or 0) for p in eligible)
-    pressure = buy_total / max(sell_total, 1)
-    update_agent("taju","active","Hindab ostu- ja müügisurvet",f"{len(eligible)} kandidaati; {buy_total} ostu / {sell_total} müüki 5 minutiga; suhe {pressure:.2f}",checks=len(pairs))
-    best = eligible[0] if eligible else None
-    if best:
-        best_symbol = (best.get("baseToken") or {}).get("symbol","?")
-        best_change = float((best.get("priceChange") or {}).get("m5") or 0)
-        best_volume = float((best.get("volume") or {}).get("m5") or 0)
-        tech_result = f"{best_symbol}: 5m muutus {best_change:+.1f}%; 5m maht USD {best_volume:,.0f}"
-    else:
-        best_symbol, tech_result = None, "Ükski token ei ületanud praeguseid tehnilisi filtreid"
-    update_agent("teras","active","Analüüsib hinnamomenti ja volüümi",tech_result,symbol=best_symbol,checks=len(pairs))
-    # Match headlines conservatively to candidate token names/symbols.
+
     with news_lock:
         available_news = list(news_cache.get("items") or [])
-    matched_news_total = 0
-    for candidate in eligible[:20]:
+    for candidate in local_candidates[:20]:
         token = candidate.get("baseToken") or {}
-        symbol = str(token.get("symbol") or "").strip()
-        name = str(token.get("name") or "").strip()
-        terms = []
-        if len(name) >= 4:
-            terms.append(name)
-        if len(symbol) >= 5:
-            terms.append(symbol)
+        terms = [str(token.get(k) or "").strip() for k in ("name","symbol")]
         matches = []
         for article in available_news:
             haystack = (str(article.get("title") or "") + " " + str(article.get("description") or "")).lower()
-            if any(__import__("re").search(r"(?<![a-z0-9])" + __import__("re").escape(term.lower()) + r"(?![a-z0-9])", haystack) for term in terms):
-                matches.append({"title": article.get("title",""), "url": article.get("url",""),
-                                "source": article.get("source",""), "published": article.get("published","")})
+            if any(len(term) >= 4 and term.lower() in haystack for term in terms):
+                matches.append({"title":article.get("title",""),"url":article.get("url",""),"source":article.get("source",""),"published":article.get("published","")})
         candidate["_news_matches"] = matches[:3]
-        matched_news_total += len(matches)
-    linked = 0
-    x_links = 0
-    tg_links = 0
-    reddit_links = 0
-    for candidate in eligible:
-        info = candidate.get("info") or {}
-        websites = info.get("websites") or []
-        socials = info.get("socials") or []
-        urls = [str(x.get("url") or "") for x in websites + socials if isinstance(x, dict)]
-        if urls:
-            linked += 1
-        if any("x.com/" in u.lower() or "twitter.com/" in u.lower() for u in urls):
-            x_links += 1
-        if any("t.me/" in u.lower() or "telegram.me/" in u.lower() for u in urls):
-            tg_links += 1
-        if any("reddit.com/" in u.lower() for u in urls):
-            reddit_links += 1
-    matched_tokens = sum(1 for p in eligible[:20] if p.get("_news_matches"))
-    teataja_status = "active" if linked or available_news else "limited"
-    teataja_result = (f"{linked}/{len(eligible)} kandidaadil projektilingid; "
-        f"X-profiile {x_links}, Telegrami linke {tg_links}, Redditi linke {reddit_links}; "
-        f"uudisvoost {len(available_news)} pealkirja, tokeniga vasteid {matched_tokens}. "
-        "Vaste on nime/tickeri tekstiline kokkulangevus, mitte kinnitatud seos.")
-    update_agent("teataja",teataja_status,"Seob avalikud uudispealkirjad tokenikandidaatidega",teataja_result,checks=len(pairs))
-    rug_eligible = []
-    rug_blocked = 0
-    rug_checked = 0
-    for candidate in eligible[:20]:
-        rug_checked += 1
-        token_address = (candidate.get("baseToken") or {}).get("address")
-        passed, report = rugcheck_token(token_address)
-        candidate["_rugcheck"] = report
-        if passed:
-            rug_eligible.append(candidate)
-        else:
-            rug_blocked += 1
-            add_event(f"rugcheck blokeeris {candidate.get('baseToken', {}).get('symbol', '?')}: {report.get('status')} | {report.get('reason', 'risk')}")
-    eligible = rug_eligible
-    risk_status = "active" if rug_checked else "waiting"
-    update_agent("valvur",risk_status,"Kontrollib tokenite riskiraporteid",f"Kontrollitud {rug_checked}; läbis {len(eligible)}; blokeeritud {rug_blocked}; puuduv raport = blokeering",checks=rug_checked)
-    pending_buys = [p for p in eligible if (p.get("baseToken") or {}).get("address") not in state.get("positions", {})]
-    if paused:
-        jano_status, verdict, decision_text = "waiting", "WAIT", "Ostud on kasutaja pausile pannud"
-    elif not pending_buys:
-        jano_status, verdict, decision_text = "waiting", "WAIT", "Kõik filtrid läbinud uut ostukandidaati praegu pole"
-    elif len(state.get("positions", {})) >= MAX_POSITIONS or state.get("cash", 0) < MIN_TRADE_SIZE or state.get("daily_count", 0) >= MAX_TRADES_PER_DAY:
-        jano_status, verdict, decision_text = "blocked", "SKIP", "Portfelli või päevase kauplemise piirang ei luba uut positsiooni"
-    else:
-        news_hits = sum(1 for p in pending_buys if p.get("_news_matches"))
-        jano_status, verdict, decision_text = "active", "BUY", f"{len(pending_buys)} kandidaati läbis tehnilised ja RugCheck filtrid; uudisevaste {news_hits}; demotehingu lubamine"
-    decision_symbol = (pending_buys[0].get("baseToken") or {}).get("symbol") if pending_buys else None
-    update_agent("jano",jano_status,"Koondab agentide tulemused",f"{verdict}: {decision_text}; uudisevaste on lisakontekst, mitte ostufilter",symbol=decision_symbol,checks=len(pairs),decision=verdict)
-    rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else ("unavailable" if rugcheck_stats["errors"] else "checking")
+
+    safe_candidates = []
+    blocked = 0
+    for candidate in local_candidates[:20]:
+        address = (candidate.get("baseToken") or {}).get("address")
+        passed, report = rugcheck_token(address)
+        candidate["_rugcheck"] = {
+            "status": report.get("status","unavailable"),
+            "score": report.get("score"),
+            "risk_count": report.get("risk_count",0),
+            "danger_count": report.get("danger_count",0),
+            "lp_locked_pct": report.get("lpLockedPct")
+        }
+        if not passed:
+            blocked += 1
+            add_event(f"RugCheck SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {report.get('reason','risk')}")
+            continue
+        basic_ok, reasons = strict_safety_check(candidate, report)
+        if not basic_ok:
+            blocked += 1
+            candidate["_entry_blockers"] = reasons
+            add_event(f"hard filter SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {', '.join(reasons[:3])}")
+            continue
+        cache_time = float((rugcheck_cache.get(address) or {}).get("time") or now)
+        holder_ok, holder_reason = _holder_growth_ok(address, report, cache_time)
+        if not holder_ok:
+            blocked += 1
+            add_event(f"holder growth SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {holder_reason}")
+            continue
+        metrics = candidate.get("marketMetrics") or candidate.get("onchainMetrics") or candidate.get("metrics") or {}
+        buyers = _number_from_sources([candidate, metrics], ["uniqueBuyers5m", "unique_buyers_5m", "buyersUnique5m"])
+        sellers = _number_from_sources([candidate, metrics], ["uniqueSellers5m", "unique_sellers_5m", "sellersUnique5m"])
+        candidate["_unique_buyer_seller_ratio"] = buyers / max(sellers, 1) if buyers is not None and sellers is not None else 0
+        candidate["_rank_score"] = candidate["_unique_buyer_seller_ratio"] * float(candidate["_momentum"]["volume_multiple"])
+        candidate["_rugcheck_report"] = report
+        safe_candidates.append(candidate)
+
+    safe_candidates.sort(key=lambda p: float(p.get("_rank_score") or 0), reverse=True)
+    buy_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("buys") or 0) for p in local_candidates)
+    sell_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("sells") or 0) for p in local_candidates)
+    update_agent("taju","active" if local_candidates else "waiting","Hindab ostu- ja müügisurvet",
+                 f"{len(local_candidates)} momentum kandidaati; {buy_total} buys / {sell_total} sells (tehinguloendus, mitte unikaalsed rahakotid)",
+                 checks=len(pairs))
+    top = local_candidates[0] if local_candidates else None
+    update_agent("teras","active" if top else "waiting","Kontrollib breakouti ja volüümi",
+                 f"{(top.get('baseToken') or {}).get('symbol','?')}: {top.get('_momentum',{}).get('volume_multiple')}x volüüm" if top else "Ootan 15m volüümi ajalugu ja 5m hinnamustrit",
+                 symbol=(top.get("baseToken") or {}).get("symbol") if top else None,checks=len(pairs))
+    update_agent("teataja","active" if available_news else "limited","Seob avalikud uudispealkirjad tokenitega",
+                 f"{len(available_news)} uudispealkirja; tekstiline vaste on ainult lisakontekst",checks=len(pairs))
+    update_agent("valvur","active" if local_candidates else "waiting","Kontrollib hard safety filtreid",
+                 f"{len(local_candidates)} kontrollitud; {len(safe_candidates)} läbis; {blocked} blokeeritud; teadmata väli = SKIP",
+                 checks=len(local_candidates))
+
     with state_lock:
         if not persistence_ok:
             raise RuntimeError(f"paper trading paused: persistent storage unavailable ({persistence_error})")
         state_before_scan = copy.deepcopy(state)
-        history_map = state.setdefault("price_history", {})
-        for candidate in eligible[:20]:
-            token_address = (candidate.get("baseToken") or {}).get("address")
-            token_price = float(candidate.get("priceUsd") or 0)
-            if token_address and token_price > 0:
-                points = history_map.setdefault(token_address, [])
-                points.append({"t": int(time.time()), "p": token_price})
-                del points[:-80]
-        by_address = {(p.get("baseToken") or {}).get("address"):p for p in pairs if p.get("baseToken")}
-        for address, pos in list(state["positions"].items()):
-            p = by_address.get(address)
-            if not p: continue
-            price = float(p.get("priceUsd") or 0)
-            if price <= 0: continue
-            pos["last_price"] = price
-            hist = state.setdefault("price_history", {}).setdefault(address, [])
-            hist.append({"t": int(time.time()), "p": price})
-            del hist[:-80]
-            pnl_pct = price / pos["entry_price"] - 1
-            pos["peak_price"] = max(float(pos.get("peak_price") or pos["entry_price"]), price)
-            peak_gain = pos["peak_price"] / pos["entry_price"] - 1
-            trailing_exit = peak_gain >= TRAIL_ACTIVATE and price / pos["peak_price"] - 1 <= -TRAIL_GIVEBACK
-            if pnl_pct >= TAKE_PROFIT or pnl_pct <= STOP_LOSS or trailing_exit:
-                proceeds = pos["quantity"] * price
-                pnl = proceeds - pos["cost"]
-                state["cash"] += proceeds
-                state["trades"].append({"symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],
-                    "exit":price,"pnl":pnl,"pnl_pct":pnl_pct,"closed_at":datetime.now(timezone.utc).isoformat()})
-                reason = "trailing stop" if trailing_exit else ("take profit" if pnl_pct >= TAKE_PROFIT else "stop loss")
-                add_event(f"müük {pos['symbol']} | {reason} | {pnl_pct*100:+.1f}% | {pnl:+.2f} €")
-                del state["positions"][address]
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = _tallinn_day()
         if state.get("day") != today:
-            state["day"], state["daily_count"] = today, 0
-        if not paused and state["daily_count"] < MAX_TRADES_PER_DAY:
-            for p in eligible:
-                address = p["baseToken"]["address"]
-                if address in state["positions"] or len(state["positions"]) >= MAX_POSITIONS: continue
-                size = dynamic_trade_size(float(p.get("_strategy_score") or 0), float(state["cash"]))
-                if size < MIN_TRADE_SIZE: continue
-                price = float(p["priceUsd"])
-                symbol = p["baseToken"].get("symbol","?")
-                state["cash"] -= size
-                state["positions"][address] = {"symbol":symbol,"entry_price":price,"last_price":price,
-                    "peak_price":price,"quantity":size/price,"cost":size,"opened_at":datetime.now(timezone.utc).isoformat(),
-                    "strategy":p.get("_setup","momentum"),"score":p.get("_strategy_score",0),
-                    "liquidity_usd":float((p.get("liquidity") or {}).get("usd") or 0), "market_cap":float(p.get("marketCap") or p.get("fdv") or 0)}
+            state["day"] = today
+            state["daily_count"] = 0
+            state["stopped_tokens"] = {}
+            state["session_halted"] = False
+            state["session_halt_reason"] = ""
+            state["day_start_equity"] = float(state["cash"]) + sum(
+                float(p.get("quantity",0))*float(p.get("last_price",p.get("entry_price",0)))
+                for p in state["positions"].values()
+            )
+            add_event("uus Tallinna kauplemissessioon: päevased piirid lähtestatud")
+
+        # Update open-position prices even after a token leaves the trending feed.
+        by_address = {(p.get("baseToken") or {}).get("address"):p for p in pairs if p.get("baseToken")}
+        for address in list(state["positions"].keys()):
+            if address not in by_address:
+                try:
+                    extra = get_json(f"{DEX}/token-pairs/v1/solana/{address}")
+                    if isinstance(extra, list):
+                        matches = [x for x in extra if (x.get("baseToken") or {}).get("address") == address and float(x.get("priceUsd") or 0) > 0]
+                        if matches:
+                            by_address[address] = max(matches, key=lambda x: float((x.get("liquidity") or {}).get("usd") or 0))
+                except Exception as exc:
+                    add_event(f"position refresh failed {address[:8]}: {str(exc)[:80]}")
+
+        for address, pos in list(state["positions"].items()):
+            pair = by_address.get(address)
+            if not pair:
+                continue
+            price = float(pair.get("priceUsd") or 0)
+            if price <= 0:
+                continue
+            pos["last_price"] = price
+            pos["peak_price"] = max(float(pos.get("peak_price") or pos["entry_price"]), price)
+            state.setdefault("price_history", {}).setdefault(address, []).append({"t":now,"p":price})
+            state["price_history"][address] = state["price_history"][address][-420:]
+            age_seconds = now - float(pos.get("opened_ts") or now)
+            pnl_pct = price / float(pos["entry_price"]) - 1
+            runner = bool(pos.get("runner"))
+            half_sold = bool(pos.get("runner_half_sold"))
+            reason, partial = None, False
+
+            if runner and not half_sold and pnl_pct >= RUNNER_HALF_TP:
+                reason, partial = "runner half TP +50%", True
+            elif runner and half_sold and price <= float(pos.get("runner_peak_price") or pos["peak_price"]) * (1 - RUNNER_TRAIL_GIVEBACK):
+                reason = "runner trailing stop -25%"
+            elif pnl_pct <= SCALP_STOP_LOSS:
+                reason = "stop loss -15%"
+            elif not runner and pnl_pct >= SCALP_TAKE_PROFIT:
+                reason = "scalp TP +30%"
+            elif not runner and age_seconds >= TIME_STOP_SECONDS and abs(pnl_pct) <= FLAT_BAND_PCT:
+                reason = "time stop 4m flat"
+
+            if reason:
+                quantity = float(pos["quantity"]) / 2 if partial else float(pos["quantity"])
+                part = quantity / max(float(pos["quantity"]), 1e-18)
+                execution_price = simulated_fill("sell", price)
+                if execution_price is None:
+                    state["cash"] = max(0.0, float(state["cash"]) - SIM_FAILED_TX_FEE_EUR)
+                    add_event(f"paper sell failed: {pos['symbol']} · retrying next scan")
+                    continue
+                proceeds = quantity * execution_price
+                sold_cost = float(pos["cost"]) * part
+                realized = proceeds - sold_cost - SIM_TX_FEE_EUR
+                state["cash"] += proceeds - SIM_TX_FEE_EUR
+                state["trades"].append({
+                    "symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],"exit":execution_price,
+                    "pnl":realized,"pnl_pct":pnl_pct,"closed_at":datetime.now(timezone.utc).isoformat(),
+                    "reason":reason,"partial":partial
+                })
+                if partial:
+                    pos["quantity"] -= quantity
+                    pos["cost"] -= sold_cost
+                    pos["runner_half_sold"] = True
+                    pos["runner_peak_price"] = price
+                    add_event(f"runner partial sell {pos['symbol']} | 50% | {pnl_pct*100:+.1f}%")
+                else:
+                    if reason == "stop loss -15%":
+                        state.setdefault("stopped_tokens", {})[address] = today
+                    del state["positions"][address]
+                    add_event(f"sell {pos['symbol']} | {reason} | {pnl_pct*100:+.1f}% | {realized:+.2f} EUR")
+            if address in state["positions"] and state["positions"][address].get("runner_half_sold"):
+                state["positions"][address]["runner_peak_price"] = max(float(state["positions"][address].get("runner_peak_price") or price), price)
+
+        day_pnl = daily_pnl_unlocked()
+        if not state.get("session_halted") and (day_pnl <= DAILY_STOP_LOSS_EUR or day_pnl >= DAILY_TARGET_EUR):
+            state["session_halted"] = True
+            state["session_halt_reason"] = "daily loss cap" if day_pnl <= DAILY_STOP_LOSS_EUR else "daily profit target"
+            add_event(f"SESSION HALTED: {state['session_halt_reason']} | daily PnL {day_pnl:+.2f} EUR")
+
+        if state.get("session_halted"):
+            for address, pos in list(state["positions"].items()):
+                pair = by_address.get(address)
+                if not pair:
+                    continue
+                price = float(pair.get("priceUsd") or 0)
+                execution_price = simulated_fill("sell", price) if price > 0 else None
+                if execution_price is None:
+                    continue
+                proceeds = float(pos["quantity"]) * execution_price
+                realized = proceeds - float(pos["cost"]) - SIM_TX_FEE_EUR
+                state["cash"] += proceeds - SIM_TX_FEE_EUR
+                state["trades"].append({"symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],"exit":execution_price,
+                    "pnl":realized,"pnl_pct":price/float(pos["entry_price"])-1,"closed_at":datetime.now(timezone.utc).isoformat(),
+                    "reason":state.get("session_halt_reason"),"partial":False})
+                del state["positions"][address]
+                add_event(f"session exit {pos['symbol']} | {realized:+.2f} EUR")
+
+        bought_symbol = None
+        if not paused and not state.get("session_halted") and len(state["positions"]) < MAX_POSITIONS and state["daily_count"] < MAX_TRADES_PER_DAY:
+            for candidate in safe_candidates:
+                address = (candidate.get("baseToken") or {}).get("address")
+                if not address or address in state["positions"] or address in state.get("stopped_tokens", {}):
+                    continue
+                equity = float(state["cash"]) + sum(float(p.get("quantity",0))*float(p.get("last_price",p.get("entry_price",0))) for p in state["positions"].values())
+                day_pnl = daily_pnl_unlocked()
+                size = dynamic_trade_size(equity, day_pnl)
+                if size <= 1 or size + SIM_TX_FEE_EUR > float(state["cash"]):
+                    continue
+                sell_ok, sell_reason = jupiter_sell_simulation(address, float(candidate.get("priceUsd") or 0), size, candidate.get("_rugcheck_report") or {})
+                if not sell_ok:
+                    add_event(f"sell-simulation SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {sell_reason}")
+                    continue
+                execution_price = simulated_fill("buy", float(candidate["priceUsd"]))
+                if execution_price is None:
+                    state["cash"] = max(0.0, float(state["cash"]) - SIM_FAILED_TX_FEE_EUR)
+                    add_event(f"paper buy failed: {candidate.get('baseToken',{}).get('symbol','?')}")
+                    continue
+                state["cash"] -= size + SIM_TX_FEE_EUR
+                state["entry_count"] = int(state.get("entry_count", 0)) + 1
+                runner = state["entry_count"] % RUNNER_EVERY_NTH_ENTRY == 0
+                symbol = (candidate.get("baseToken") or {}).get("symbol","?")
+                state["positions"][address] = {
+                    "symbol":symbol,"entry_price":execution_price,"last_price":float(candidate["priceUsd"]),
+                    "peak_price":float(candidate["priceUsd"]),"quantity":size/execution_price,"cost":size+SIM_TX_FEE_EUR,
+                    "opened_at":datetime.now(timezone.utc).isoformat(),"opened_ts":time.time(),
+                    "strategy":"runner" if runner else "scalp","runner":runner,"runner_half_sold":False,
+                    "runner_peak_price":float(candidate["priceUsd"]),"score":candidate.get("_rank_score",0),
+                    "liquidity_usd":float((candidate.get("liquidity") or {}).get("usd") or 0),
+                    "market_cap":float(candidate.get("marketCap") or candidate.get("fdv") or 0),
+                    "sim_slippage_pct":SIM_SLIPPAGE_PCT*100
+                }
                 state["daily_count"] += 1
-                add_event(f"ost {symbol} | €{size:.2f} | {p.get('_setup')} | skoor {p.get('_strategy_score')}")
-                if len(state["positions"]) >= MAX_POSITIONS or state["daily_count"] >= MAX_TRADES_PER_DAY: break
+                bought_symbol = symbol
+                add_event(f"paper buy {symbol} | EUR {size:.2f} | {'RUNNER' if runner else 'SCALP'} | rank {candidate.get('_rank_score')}")
+                break
+
         try:
             save_state()
         except Exception:
             state.clear()
             state.update(state_before_scan)
             raise
+
+        shown = safe_candidates or local_candidates
         last_candidates = [{
-            "symbol": (p.get("baseToken") or {}).get("symbol","?"),
-            "name": (p.get("baseToken") or {}).get("name",""),
-            "price": p.get("priceUsd"),
-            "change5m": (p.get("priceChange") or {}).get("m5",0),
-            "volume5m": (p.get("volume") or {}).get("m5",0),
-            "buys5m": ((p.get("txns") or {}).get("m5") or {}).get("buys",0),
-            "sells5m": ((p.get("txns") or {}).get("m5") or {}).get("sells",0),
-            "buys5m": ((p.get("txns") or {}).get("m5") or {}).get("buys",0),
-            "sells5m": ((p.get("txns") or {}).get("m5") or {}).get("sells",0),
-            "liquidity": (p.get("liquidity") or {}).get("usd",0),
-            "marketCap": p.get("marketCap") or p.get("fdv") or 0,
-            "history": state.setdefault("price_history", {}).setdefault((p.get("baseToken") or {}).get("address",""), [])[-60:],
-            "address": (p.get("baseToken") or {}).get("address",""),
-            "url": p.get("url",""),
-            "rugcheck": p.get("_rugcheck", {"status":"not_checked"}),
-            "strategy_score": p.get("_strategy_score", 0),
-            "setup": p.get("_setup", ""),
-            "buy_sell_ratio": p.get("_buy_sell_ratio", 0),
-            "sources": p.get("_discovery_sources", []),
-            "news": p.get("_news_matches", [])
-        } for p in eligible[:20]]
-        last_pair_count, last_candidate_count = len(pairs), len(eligible)
+            "symbol":(p.get("baseToken") or {}).get("symbol","?"),
+            "name":(p.get("baseToken") or {}).get("name",""),
+            "price":p.get("priceUsd"),
+            "change5m":(p.get("priceChange") or {}).get("m5",0),
+            "volume5m":(p.get("volume") or {}).get("m5",0),
+            "buys5m":((p.get("txns") or {}).get("m5") or {}).get("buys",0),
+            "sells5m":((p.get("txns") or {}).get("m5") or {}).get("sells",0),
+            "liquidity":(p.get("liquidity") or {}).get("usd",0),
+            "marketCap":p.get("marketCap") or p.get("fdv") or 0,
+            "history":state.setdefault("price_history",{}).setdefault((p.get("baseToken") or {}).get("address",""),[])[-60:],
+            "address":(p.get("baseToken") or {}).get("address",""),
+            "url":p.get("url",""),
+            "rugcheck":p.get("_rugcheck",{"status":"not_checked"}),
+            "strategy_score":p.get("_score",0),
+            "setup":p.get("_setup","momentum"),
+            "buy_sell_ratio":p.get("_buy_sell_ratio",0),
+            "volume_multiple":(p.get("_momentum") or {}).get("volume_multiple"),
+            "rank_score":p.get("_rank_score"),
+            "sources":p.get("_discovery_sources",[]),
+            "news":p.get("_news_matches",[])
+        } for p in shown[:20]]
+        last_pair_count, last_candidate_count = len(pairs), len(safe_candidates)
         last_scan = datetime.now(timezone.utc).isoformat()
         last_error = ""
-    return len(pairs), len(eligible)
+        jano_verdict = "BUY" if bought_symbol else ("WAIT" if not state.get("session_halted") else "HALT")
+        update_agent("jano","active" if bought_symbol else "waiting","JANO controls the paper session",
+                     f"{jano_verdict}: {bought_symbol or state.get('session_halt_reason') or 'no fully-qualified entry'}; open {len(state['positions'])}/{MAX_POSITIONS}; day PnL {daily_pnl_unlocked():+.2f} EUR",
+                     symbol=bought_symbol,checks=len(pairs),decision=jano_verdict)
+    rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else ("unavailable" if rugcheck_stats["errors"] else "checking")
+    return len(pairs), len(safe_candidates)
 
 async def scanner_loop(app):
     while True:
