@@ -131,15 +131,84 @@ def rugcheck_token(address):
         rugcheck_stats["errors"] += 1
         return False, data
 
+DISCOVERY_TTL = 60
+discovery_cache = {"time": 0, "addresses": [], "sources": {}}
+discovery_stats = {"addresses": 0, "dex_pairs": 0, "sources": {}, "updated": "not yet", "errors": []}
+
+def _solana_addresses(rows):
+    out = []
+    for row in rows if isinstance(rows, list) else []:
+        if row.get("chainId") == "solana" and row.get("tokenAddress"):
+            out.append(row["tokenAddress"])
+    return out
+
+def _gecko_solana_addresses(payload):
+    out = []
+    if not isinstance(payload, dict):
+        return out
+    for item in payload.get("data", []):
+        rel = ((item.get("relationships") or {}).get("base_token") or {}).get("data") or {}
+        token_id = rel.get("id", "")
+        if token_id.startswith("solana_"):
+            out.append(token_id.split("_", 1)[1])
+    for item in payload.get("included", []):
+        if item.get("type") == "token":
+            attrs = item.get("attributes") or {}
+            address = attrs.get("address")
+            if address:
+                out.append(address)
+    return out
+
 def discover_candidates():
-    profiles = get_json(f"{DEX}/token-profiles/latest/v1")
-    addresses = list(dict.fromkeys(x.get("tokenAddress") for x in profiles
-                      if x.get("chainId") == "solana" and x.get("tokenAddress")))
+    now = time.time()
+    if now - discovery_cache["time"] >= DISCOVERY_TTL:
+        sources = {}
+        errors = []
+        def pull(name, url, parser):
+            try:
+                sources[name] = parser(get_json(url))
+            except Exception as exc:
+                errors.append(f"{name}: {str(exc)[:100]}")
+                sources[name] = []
+        # DexScreener discovery feeds: newest profiles, new boosts, top boosts, community takeovers.
+        pull("profiles", f"{DEX}/token-profiles/latest/v1", _solana_addresses)
+        pull("boosts_latest", f"{DEX}/token-boosts/latest/v1", _solana_addresses)
+        pull("boosts_top", f"{DEX}/token-boosts/top/v1", _solana_addresses)
+        pull("community_takeovers", f"{DEX}/community-takeovers/latest/v1", _solana_addresses)
+        # GeckoTerminal supplies actual new Solana pools and a separate trending-pool feed.
+        pull("new_pools", "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?include=base_token", _gecko_solana_addresses)
+        pull("trending_pools", "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?duration=5m&include=base_token", _gecko_solana_addresses)
+        merged = {}
+        for source, items in sources.items():
+            for address in items:
+                if address:
+                    merged.setdefault(address, set()).add(source)
+        discovery_cache["addresses"] = list(merged.keys())[:240]
+        discovery_cache["sources"] = {address: sorted(list(tags)) for address, tags in merged.items()}
+        discovery_cache["time"] = now
+        discovery_stats.update({
+            "addresses": len(discovery_cache["addresses"]),
+            "sources": {name: len(items) for name, items in sources.items()},
+            "updated": datetime.now(timezone.utc).isoformat(),
+            "errors": errors
+        })
+        if errors:
+            add_event("discovery source warnings: " + "; ".join(errors))
+    addresses = discovery_cache["addresses"]
     candidates = []
-    for i in range(0, min(len(addresses), 90), 30):
-        data = get_json(f"{DEX}/tokens/v1/solana/{','.join(addresses[i:i+30])}")
-        if isinstance(data, list):
-            candidates.extend(data)
+    # DexScreener supports up to 30 token addresses per batch; stay within its 300 rpm limit.
+    for i in range(0, len(addresses), 30):
+        batch = addresses[i:i+30]
+        try:
+            data = get_json(f"{DEX}/tokens/v1/solana/{','.join(batch)}")
+            if isinstance(data, list):
+                for pair in data:
+                    token_address = (pair.get("baseToken") or {}).get("address")
+                    pair["_discovery_sources"] = discovery_cache["sources"].get(token_address, [])
+                candidates.extend(data)
+        except Exception as exc:
+            add_event(f"dex batch error: {str(exc)[:120]}")
+    discovery_stats["dex_pairs"] = len(candidates)
     return candidates
 
 def pair_age_hours(pair):
@@ -244,7 +313,8 @@ def scan_once():
             "history": state.setdefault("price_history", {}).setdefault((p.get("baseToken") or {}).get("address",""), [])[-60:],
             "address": (p.get("baseToken") or {}).get("address",""),
             "url": p.get("url",""),
-            "rugcheck": p.get("_rugcheck", {"status":"not_checked"})
+            "rugcheck": p.get("_rugcheck", {"status":"not_checked"}),
+            "sources": p.get("_discovery_sources", [])
         } for p in eligible[:20]]
         last_pair_count, last_candidate_count = len(pairs), len(eligible)
         last_scan = datetime.now(timezone.utc).isoformat()
@@ -338,7 +408,7 @@ def live_data():
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
+            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
     return jsonify(payload)
 
 def run_web():
