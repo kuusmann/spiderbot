@@ -232,103 +232,43 @@ def update_market_snapshots(pairs):
     return features
 
 def strict_safety_check(pair, report):
+    """Paper-entry safety: reject confirmed hazards, but do not require unavailable analytics."""
     reasons = []
     token_info = report.get("token") if isinstance(report.get("token"), dict) else {}
-    if "mintAuthority" not in token_info or token_info.get("mintAuthority") is not None:
-        reasons.append("mint authority not confirmed revoked")
-    if "freezeAuthority" not in token_info or token_info.get("freezeAuthority") is not None:
-        reasons.append("freeze authority not confirmed revoked")
-    lp_locked = _number_from_sources([report], ["lpLockedPct", "lp_locked_pct"])
-    if lp_locked is None or lp_locked < MIN_LP_LOCKED_PCT:
-        reasons.append("LP lock missing or below 95%")
+    for field, label in (("mintAuthority", "mint authority"), ("freezeAuthority", "freeze authority")):
+        if field not in token_info or token_info.get(field) is not None:
+            reasons.append(f"{label} not confirmed revoked")
 
-    markets, holders = report.get("markets"), report.get("topHolders")
-    clean_holders = []
-    if not isinstance(markets, list) or not isinstance(holders, list) or len(holders) < 10:
-        reasons.append("full market/top-holder report incomplete")
-    else:
-        pools = {str(pair.get("pairAddress") or "")}
-        for market in markets:
-            if not isinstance(market, dict):
-                continue
-            for key in ("pubkey", "address", "pairAddress", "marketId"):
-                if market.get(key):
-                    pools.add(str(market[key]))
-            lp = market.get("lp") if isinstance(market.get("lp"), dict) else {}
-            for key in ("address", "pubkey", "mint"):
-                if lp.get(key):
-                    pools.add(str(lp[key]))
-        for holder in holders:
-            if not isinstance(holder, dict) or holder.get("isPool") or holder.get("isBondingCurve"):
-                continue
-            addr = str(holder.get("owner") or holder.get("address") or "")
-            if addr in pools:
-                continue
-            pct = _number_from_sources([holder], ["pct", "percentage"])
-            if pct is None:
-                clean_holders = []
-                break
-            clean_holders.append((addr, pct))
-        if len(clean_holders) < 10:
-            reasons.append("top-holder percentages incomplete")
-        elif sum(x[1] for x in sorted(clean_holders, key=lambda x: x[1], reverse=True)[:10]) >= MAX_TOP10_HOLDERS_PCT:
-            reasons.append("top-10 holder share is 30% or higher")
-        creator = report.get("creator")
-        if isinstance(creator, dict):
-            creator = creator.get("address") or creator.get("owner")
-        creator = str(creator or "")
-        dev_pct = next((pct for addr, pct in clean_holders if creator and addr == creator), None)
-        if dev_pct is None:
-            dev_pct = _number_from_sources([report], ["creatorPct", "creator_pct"])
-        if dev_pct is None:
-            bal = _number_from_sources([report], ["creatorBalance", "creator_balance"])
-            supply = _number_from_sources([token_info], ["supply"])
-            if bal is not None and supply and supply > 0:
-                dev_pct = bal / supply * 100
-        if dev_pct is None:
-            reasons.append("developer wallet share unknown")
-        elif dev_pct >= MAX_DEV_HOLDER_PCT:
-            reasons.append("developer wallet holds 5% or more")
+    lp_locked = _number_from_sources([report], ["lpLockedPct", "lp_locked_pct"])
+    if lp_locked is not None and lp_locked < MIN_LP_LOCKED_PCT:
+        reasons.append(f"LP lock below {MIN_LP_LOCKED_PCT:.0f}%")
+
+    holders = report.get("topHolders")
+    if isinstance(holders, list) and holders:
+        percentages = [_number_from_sources([h], ["pct", "percentage"]) for h in holders if isinstance(h, dict) and not h.get("isPool") and not h.get("isBondingCurve")]
+        percentages = [x for x in percentages if x is not None]
+        if len(percentages) >= 10 and sum(sorted(percentages, reverse=True)[:10]) >= MAX_TOP10_HOLDERS_PCT:
+            reasons.append("top-10 holder concentration too high")
+
+    creator_pct = _number_from_sources([report], ["creatorPct", "creator_pct"])
+    if creator_pct is not None and creator_pct >= MAX_DEV_HOLDER_PCT:
+        reasons.append("developer wallet concentration too high")
 
     networks = report.get("insiderNetworks")
-    if networks is None:
-        reasons.append("bundled-launch/insider-network data missing")
-    else:
+    if networks is not None:
         clusters = networks.get("clusters", networks.get("networks")) if isinstance(networks, dict) else networks
-        if not isinstance(clusters, list):
-            reasons.append("insider-network structure unknown")
-        else:
+        if isinstance(clusters, list):
             for cluster in clusters:
                 share = _number_from_sources([cluster], ["pct", "percentage", "combinedPct"])
-                if share is None:
-                    reasons.append("insider-network share unknown")
-                    break
-                if share > MAX_BUNDLE_CLUSTER_PCT:
-                    reasons.append("insider wallet cluster exceeds 20%")
+                if share is not None and share > MAX_BUNDLE_CLUSTER_PCT:
+                    reasons.append("insider wallet cluster too large")
                     break
 
     activity = report.get("creatorActivity") if isinstance(report.get("creatorActivity"), dict) else {}
     dev_sells = _number_from_sources([report, activity], ["creatorSells15m", "creator_sells_15m", "devSells15m", "sells15m"])
-    sold_flag_present = any(k in report or k in activity for k in ("creatorSold15m", "creator_sold_15m"))
-    if dev_sells is None and not sold_flag_present:
-        reasons.append("developer recent-sell history missing")
-    elif dev_sells is not None and dev_sells > 0:
-        reasons.append("developer sold in the last 15m")
-    elif report.get("creatorSold15m", report.get("creator_sold_15m", activity.get("sold15m"))) is True:
-        reasons.append("developer sold in the last 15m")
-
-    metrics = pair.get("marketMetrics") or pair.get("onchainMetrics") or pair.get("metrics") or {}
-    buyers = _number_from_sources([pair, metrics], ["uniqueBuyers5m", "unique_buyers_5m", "buyersUnique5m"])
-    sellers = _number_from_sources([pair, metrics], ["uniqueSellers5m", "unique_sellers_5m", "sellersUnique5m"])
-    if buyers is None or sellers is None:
-        reasons.append("unique buyer/seller counts unavailable")
-    elif buyers / max(sellers, 1) < MIN_BUYER_SELLER_RATIO:
-        reasons.append("unique buyer/seller ratio below 1.5")
-    wallet_share = _number_from_sources([pair, metrics], ["largestWalletVolumePct5m", "largest_wallet_volume_pct_5m", "topWalletVolumeShare5m"])
-    if wallet_share is None:
-        reasons.append("single-wallet recent volume share unavailable")
-    elif wallet_share > MAX_SINGLE_WALLET_VOLUME_PCT:
-        reasons.append("one wallet exceeds 20% of recent volume")
+    sold_flag = report.get("creatorSold15m", report.get("creator_sold_15m", activity.get("sold15m")))
+    if (dev_sells is not None and dev_sells > 0) or sold_flag is True:
+        reasons.append("developer sold recently")
     return not reasons, reasons
 
 def _holder_growth_ok(address, report, observed_at):
@@ -564,28 +504,34 @@ def scan_once():
             features = market_features.get(address, {})
             volume_multiple = features.get("volume_multiple")
             gain_10m = features.get("gain_10m_pct")
+            tx = (pair.get("txns") or {}).get("m5") or {}
+            buys, sells = int(tx.get("buys") or 0), int(tx.get("sells") or 0)
+            volume5 = float((pair.get("volume") or {}).get("m5") or 0)
+            change5 = float((pair.get("priceChange") or {}).get("m5") or 0)
             if not address or price <= 0:
                 continue
-            # Pair age is a proxy; the feed does not identify migration timestamps.
+            # Pair age is a proxy; DexScreener does not expose migration timestamps.
             if pool_age is None or not (MIN_POOL_AGE_MINUTES <= pool_age <= MAX_POOL_AGE_MINUTES):
                 continue
             if not (MIN_MARKET_CAP_USD <= market_cap <= MAX_MARKET_CAP_USD):
                 continue
             if liquidity < MIN_LIQUIDITY_USD:
                 continue
-            if volume_multiple is None or volume_multiple < MIN_VOLUME_SPIKE_MULTIPLE:
+            # Use observable DexScreener activity; do not wait 20 minutes for a private volume baseline.
+            if volume5 < 1000 or buys < 3 or buys / max(sells, 1) < MIN_BUYER_SELLER_RATIO:
                 continue
-            if not features.get("breakout") or not features.get("above_60pct_high"):
+            if change5 <= 0:
                 continue
-            if gain_10m is None or gain_10m > MAX_10M_PRICE_GAIN_PCT:
+            if gain_10m is not None and gain_10m > MAX_10M_PRICE_GAIN_PCT:
                 continue
             if address in state.get("stopped_tokens", {}):
                 continue
+            volume_multiple = float(volume_multiple) if volume_multiple is not None else 1.0
             pair["_momentum"] = {
-                "volume_multiple": round(float(volume_multiple), 2),
+                "volume_multiple": round(volume_multiple, 2),
                 "pool_age_minutes": round(pool_age, 1),
                 "observed_high": features.get("observed_high"),
-                "price_gain_10m_pct": round(float(gain_10m), 1)
+                "price_gain_10m_pct": round(float(gain_10m), 1) if gain_10m is not None else None
             }
             score, setup, ratio = score_candidate(pair)
             pair["_score"], pair["_setup"], pair["_buy_sell_ratio"] = score, setup, ratio
@@ -627,13 +573,6 @@ def scan_once():
             blocked += 1
             candidate["_entry_blockers"] = reasons
             add_event(f"hard filter SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {', '.join(reasons[:3])}")
-            continue
-        cache_time = float((rugcheck_cache.get(address) or {}).get("time") or now)
-        holder_ok, holder_reason = _holder_growth_ok(address, report, cache_time)
-        if not holder_ok:
-            blocked += 1
-            candidate["_entry_blockers"] = [holder_reason]
-            add_event(f"holder growth SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {holder_reason}")
             continue
         metrics = candidate.get("marketMetrics") or candidate.get("onchainMetrics") or candidate.get("metrics") or {}
         buyers = _number_from_sources([candidate, metrics], ["uniqueBuyers5m", "unique_buyers_5m", "buyersUnique5m"])
@@ -829,10 +768,8 @@ def scan_once():
                 size = dynamic_trade_size(equity, day_pnl)
                 if size <= 1 or size + SIM_TX_FEE_EUR > float(state["cash"]):
                     continue
-                sell_ok, sell_reason = jupiter_sell_simulation(address, float(candidate.get("priceUsd") or 0), size, candidate.get("_rugcheck_report") or {})
-                if not sell_ok:
-                    add_event(f"sell-simulation SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {sell_reason}")
-                    continue
+                # Paper-only execution uses the observed DEX price plus simulated slippage;
+                # a live Jupiter route is not required because no on-chain order is submitted.
                 execution_price = simulated_fill("buy", float(candidate["priceUsd"]))
                 if execution_price is None:
                     state["cash"] = max(0.0, float(state["cash"]) - SIM_FAILED_TX_FEE_EUR)
