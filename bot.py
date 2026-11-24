@@ -1,4 +1,4 @@
-import os, json, time, logging, asyncio, threading, copy
+import os, json, time, logging, asyncio, threading, copy, xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
@@ -488,6 +488,61 @@ async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     paused=False
     await send_text(update, "▶️ paper-mootor jätkab.")
 
+
+# Free public RSS news feed; no paid API keys or scraping.
+NEWS_FEEDS = [
+    ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+    ("Cointelegraph", "https://cointelegraph.com/rss"),
+]
+news_lock = threading.RLock()
+news_cache = {"items": [], "updated": None, "status": "waiting", "error": ""}
+
+def refresh_news():
+    items = []
+    errors = []
+    for source, url in NEWS_FEEDS:
+        try:
+            response = requests.get(url, timeout=12, headers={"User-Agent": "janobot-news/1.0"})
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            for item in root.iter():
+                tag = item.tag.rsplit("}", 1)[-1].lower()
+                if tag != "item":
+                    continue
+                fields = {}
+                for child in list(item):
+                    key = child.tag.rsplit("}", 1)[-1].lower()
+                    if key in ("title", "link", "pubdate", "published", "description"):
+                        fields[key] = "".join(child.itertext()).strip()
+                title = fields.get("title", "").strip()
+                link = fields.get("link", "").strip()
+                if title and link.startswith("https://"):
+                    items.append({"title": title[:220], "url": link, "source": source,
+                                  "published": fields.get("pubdate") or fields.get("published") or ""})
+        except Exception as exc:
+            errors.append(f"{source}: {str(exc)[:100]}")
+    # Deduplicate by canonical URL and keep newest feed entries in source order.
+    seen = set()
+    unique = []
+    for item in items:
+        if item["url"] not in seen:
+            seen.add(item["url"])
+            unique.append(item)
+    with news_lock:
+        news_cache["items"] = unique[:30]
+        news_cache["updated"] = datetime.now(timezone.utc).isoformat()
+        news_cache["status"] = "connected" if unique else "unavailable"
+        news_cache["error"] = "; ".join(errors)
+    if unique:
+        log.info("news feed refreshed: %s headlines", len(unique))
+    else:
+        log.warning("news feed unavailable: %s", news_cache["error"] or "no RSS items")
+
+def news_loop():
+    while True:
+        refresh_news()
+        time.sleep(300)
+
 web = Flask(__name__)
 def check_auth(auth):
     return auth and auth.username == "spider" and DASHBOARD_PASSWORD and auth.password == DASHBOARD_PASSWORD
@@ -500,6 +555,12 @@ def health():
 def dashboard():
     if not check_auth(request.authorization): return auth_required()
     return Response(Path("dashboard.html").read_text(), mimetype="text/html")
+@web.get("/api/news")
+def news_data():
+    if not check_auth(request.authorization): return auth_required()
+    with news_lock:
+        return jsonify(dict(news_cache))
+
 @web.get("/api/live")
 def live_data():
     if not check_auth(request.authorization): return auth_required()
@@ -523,6 +584,7 @@ def run_web():
 def main():
     if not TOKEN: raise RuntimeError("Missing TELEGRAM_BOT_TOKEN")
     load_state()
+    threading.Thread(target=news_loop, daemon=True).start()
     threading.Thread(target=run_web, daemon=True).start()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
     for cmd, fn in [("start",start),("status",status),("portfolio",portfolio),("trades",trades),("scan",scan),("pause",pause_cmd),("resume",resume_cmd)]:
