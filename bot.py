@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("spider-bot")
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_USER_ID = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
 paused = False
 
