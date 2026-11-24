@@ -33,13 +33,7 @@
 @keyframes bodybob{from{transform:translateY(-1px) rotate(-2deg)}to{transform:translateY(2px) rotate(2deg)}}
 @keyframes legstep{from{transform:rotate(-19deg) translateY(-1px)}to{transform:rotate(19deg) translateY(2px)}}
 @keyframes spiderroute{0%,100%{transform:translate(-50%,-50%) translate(-115px,-72px) rotate(-8deg)}24%{transform:translate(-50%,-50%) translate(115px,-65px) rotate(9deg)}49%{transform:translate(-50%,-50%) translate(130px,82px) rotate(13deg)}74%{transform:translate(-50%,-50%) translate(-115px,92px) rotate(-10deg)}}
-.notify-tools{display:flex;align-items:center;gap:8px}
-.notify-btn{border:1px solid #31536b;background:#0d2231;color:#ccecff;border-radius:20px;padding:7px 11px;font-size:10px;cursor:pointer}
-#toaststack{position:fixed;right:16px;top:16px;z-index:99;display:flex;flex-direction:column;gap:9px;width:min(360px,calc(100vw - 32px));pointer-events:none}
-.toast{background:#0b1d2a;border:1px solid #39708d;border-left:3px solid #55d6ff;border-radius:10px;padding:12px 14px;box-shadow:0 12px 32px #000a;animation:toastin .25s ease-out}
-.toast.good{border-left-color:#56e6a1}.toast.warn{border-left-color:#ffc36a}.toast.bad{border-left-color:#ff7185}
-.toast b{display:block;font-size:12px;margin-bottom:4px}.toast span{font-size:11px;color:#b5c9d8}
-@keyframes toastin{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+to{opacity:1;transform:translateX(0)}}
 @media(prefers-reduced-motion:reduce){.spider,.spider *,.netline,.scanbeam{animation:none!important}}
 
 /* Hele töölaud: rahulik tüpograafia, värviline graafik */
@@ -65,16 +59,12 @@ body{background:#f4f6f8;color:#17212b;font-weight:400;text-transform:none}
 .spider .body ellipse:nth-child(2){fill:#273747;stroke:#e87932}
 .spider .body circle{fill:#fff4e8}
 .spider .body path{stroke:#273747}
-#toaststack{top:auto;bottom:16px;right:16px}
-.toast{background:#fff;border-color:#d5e0e7;color:#1e2b36;box-shadow:0 8px 26px #17212b1c}
-.toast span{color:#536475}
-.toast.good{border-left-color:#16885d}.toast.warn{border-left-color:#bd801c}.toast.bad{border-left-color:#c43d52}.toast.info{border-left-color:#278bb8}
+.toast.info{border-left-color:#278bb8}
 .logline{border-color:#e8edf1;color:#263746;font-family:inherit}
 .item{border-color:#e8edf1}
 .small,.empty{color:#667585}
 .foot{color:#748292}
-button.notify-btn{display:none}
-
+button
 /* SPIDER BOT command-centre visual */
 body{background:radial-gradient(ellipse at 50% -12%,#172c45 0,#070b14 55%,#03060c 100%);color:#eaf2ff;text-transform:none}
 .top,.card{background:linear-gradient(145deg,#111d30,#091321);border-color:#263d5b;box-shadow:0 8px 28px #0007}
@@ -122,7 +112,7 @@ body{background:radial-gradient(ellipse at 50% -12%,#172c45 0,#070b14 55%,#03060
 <div class="card"><div class="label">avatud positsioonid</div><div id="count" class="value">0</div><div id="posvalue" class="small">€0.00 praegune väärtus</div></div>
 <div class="card"><div class="label">realiseeritud kasum/kahjum</div><div id="pnl" class="value">€0.00</div><div id="closed" class="small">0 suletud tehingut</div></div></div>
 <section class="crawl">
-<div class="crawl-head"><div><div class="section">🕷 Ämblikrobot · reaalajas võrguskannimine</div><div class="small">Robot liigub avastatud tokenite ja kontrollietappide vahel. Ühendused näitavad andmete liikumist.</div></div><div class="notify-tools"><span class="tag">tegevusvoog aktiivne</span><span class="tag" id="crawlstatus">SKANNIMINE</span></div></div>
+<div class="crawl-head"><div><div class="section">🕷 Ämblikrobot · reaalajas võrguskannimine</div><div class="small">Robot liigub avastatud tokenite ja kontrollietappide vahel. Ühendused näitavad andmete liikumist.</div></div><div class="crawl-status"><span class="tag">live action</span><span class="tag" id="crawlstatus">SKANNIMINE</span></div></div>
 <div class="crawl-stage"><div class="scanbeam"></div>
 <svg viewBox="0 0 1000 420" preserveAspectRatio="none" aria-hidden="true">
 <path class="netline hot" d="M110 90 C260 10 330 40 490 70 S760 50 900 110"/>
