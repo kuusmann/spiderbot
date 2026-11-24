@@ -638,6 +638,8 @@ def scan_once():
         metrics = candidate.get("marketMetrics") or candidate.get("onchainMetrics") or candidate.get("metrics") or {}
         buyers = _number_from_sources([candidate, metrics], ["uniqueBuyers5m", "unique_buyers_5m", "buyersUnique5m"])
         sellers = _number_from_sources([candidate, metrics], ["uniqueSellers5m", "unique_sellers_5m", "sellersUnique5m"])
+        candidate["_unique_buyers_5m"] = buyers
+        candidate["_unique_sellers_5m"] = sellers
         candidate["_unique_buyer_seller_ratio"] = buyers / max(sellers, 1) if buyers is not None and sellers is not None else 0
         candidate["_rank_score"] = candidate["_unique_buyer_seller_ratio"] * float(candidate["_momentum"]["volume_multiple"])
         candidate["_rugcheck_report"] = report
@@ -675,7 +677,7 @@ def scan_once():
             "rank_score": candidate.get("_rank_score"),
             "qualified": address in safe_addresses,
             "blockers": blockers,
-            "outcome": "open" if address in state.get("positions",{}) else "not-entered"
+            "outcome": "already-open" if address in state.get("positions",{}) else ("qualified" if address in safe_addresses else "blocked")
         })
     with state_lock:
         state.setdefault("signal_log", []).extend(signal_rows)
@@ -852,7 +854,9 @@ def scan_once():
                     "entry_metrics":{
                         "rank_score":candidate.get("_rank_score"),
                         "volume_multiple":(candidate.get("_momentum") or {}).get("volume_multiple"),
-                        "unique_buyers_5m":candidate.get("_unique_buyer_seller_ratio"),
+                        "unique_buyers_5m":candidate.get("_unique_buyers_5m"),
+                        "unique_sellers_5m":candidate.get("_unique_sellers_5m"),
+                        "unique_buyer_seller_ratio":candidate.get("_unique_buyer_seller_ratio"),
                         "pool_age_minutes":(candidate.get("_momentum") or {}).get("pool_age_minutes"),
                         "price_gain_10m_pct":(candidate.get("_momentum") or {}).get("price_gain_10m_pct"),
                         "liquidity_usd":float((candidate.get("liquidity") or {}).get("usd") or 0),
@@ -861,6 +865,12 @@ def scan_once():
                 }
                 state["daily_count"] += 1
                 bought_symbol = symbol
+                for signal in reversed(state.get("signal_log", [])):
+                    if signal.get("address") == address and signal.get("outcome") == "qualified":
+                        signal["outcome"] = "entered"
+                        signal["entry_strategy"] = "RUNNER" if runner else "SCALP"
+                        signal["entry_size_eur"] = size
+                        break
                 add_event(f"paper buy {symbol} | EUR {size:.2f} | {'RUNNER' if runner else 'SCALP'} | rank {candidate.get('_rank_score')}")
                 break
 
