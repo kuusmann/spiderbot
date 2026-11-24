@@ -13,7 +13,7 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_USER_ID = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 STATE_FILE = Path(os.environ.get("STATE_FILE", "/var/data/state.json"))
-STARTING_BALANCE = 50.0
+STARTING_BALANCE = 1000.0
 TRADE_SIZE = 2.5
 MAX_POSITIONS = 4
 MAX_TRADES_PER_DAY = 20
@@ -33,7 +33,7 @@ last_candidate_count = 0
 last_candidates = []
 events = []
 state_lock = threading.RLock()
-state = {"cash": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0, "price_history": {}}
+state = {"cash": STARTING_BALANCE, "starting_balance": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0, "price_history": {}}
 
 def add_event(message):
     events.append({"time": datetime.now(timezone.utc).isoformat(), "message": message})
@@ -47,6 +47,12 @@ def load_state():
             data = json.loads(STATE_FILE.read_text())
             if isinstance(data, dict) and "cash" in data:
                 state.update(data)
+                previous_start = float(state.get("starting_balance", 50.0))
+                if previous_start < STARTING_BALANCE:
+                    state["cash"] = float(state.get("cash", previous_start)) + (STARTING_BALANCE - previous_start)
+                    state["starting_balance"] = STARTING_BALANCE
+                    save_state()
+                    add_event("virtuaalne algkapital suurendatud €1000-ni")
     except Exception as e:
         log.exception("Could not load state: %s", e)
 
