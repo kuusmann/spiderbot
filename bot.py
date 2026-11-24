@@ -367,10 +367,12 @@ def jupiter_sell_simulation(token_address, price_usd, notional_eur, report):
         quote = response.json()
         out_amount = int(quote.get("outAmount") or 0)
         route = quote.get("router") or quote.get("routePlan")
-        impact = quote.get("priceImpactPct", quote.get("priceImpact"))
-        if out_amount <= 0 or not route or impact is None:
+        impact_ratio = quote.get("priceImpactPct")
+        impact_points = quote.get("priceImpact")
+        if out_amount <= 0 or not route or (impact_ratio is None and impact_points is None):
             return False, "sell quote incomplete (route/output/impact missing)"
-        impact_pct = abs(float(impact)) * (100 if abs(float(impact)) <= 1 else 1)
+        # V2 priceImpactPct is a ratio; priceImpact is already percentage points.
+        impact_pct = abs(float(impact_ratio)) * 100 if impact_ratio is not None else abs(float(impact_points))
         if impact_pct > MAX_SELL_PRICE_IMPACT_PCT:
             return False, f"sell quote impact {impact_pct:.2f}%"
         return True, f"Jupiter sell route ok; impact {impact_pct:.2f}%"
