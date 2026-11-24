@@ -1,4 +1,4 @@
-import os, json, time, logging, asyncio, threading
+import os, json, time, logging, asyncio, threading, copy
 from pathlib import Path
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
@@ -61,6 +61,8 @@ def update_agent(key, status, task, result, symbol=None, checks=None, decision=N
     del agent_history[:-60]
 state_lock = threading.RLock()
 state = {"cash": STARTING_BALANCE, "starting_balance": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0, "price_history": {}}
+persistence_ok = False
+persistence_error = "state not loaded"
 
 def add_event(message):
     events.append({"time": datetime.now(timezone.utc).isoformat(), "message": message})
@@ -68,26 +70,50 @@ def add_event(message):
     log.info(message)
 
 def load_state():
-    global state
+    global state, persistence_ok, persistence_error
     try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         if STATE_FILE.exists():
             data = json.loads(STATE_FILE.read_text())
-            if isinstance(data, dict) and "cash" in data:
-                state.update(data)
-                previous_start = float(state.get("starting_balance", 50.0))
-                if previous_start < STARTING_BALANCE:
-                    state["cash"] = float(state.get("cash", previous_start)) + (STARTING_BALANCE - previous_start)
-                    state["starting_balance"] = STARTING_BALANCE
-                    save_state()
-                    add_event("virtuaalne algkapital suurendatud €1000-ni")
+            if not isinstance(data, dict) or "cash" not in data or "positions" not in data or "trades" not in data:
+                raise ValueError("state file is incomplete; refusing to reset portfolio")
+            state.update(data)
+            previous_start = float(state.get("starting_balance", 50.0))
+            if previous_start < STARTING_BALANCE:
+                state["cash"] = float(state.get("cash", previous_start)) + (STARTING_BALANCE - previous_start)
+                state["starting_balance"] = STARTING_BALANCE
+                save_state()
+                add_event("virtuaalne algkapital suurendatud €1000-ni")
+            else:
+                persistence_ok = True
+                persistence_error = ""
+                add_event(f"portfell taastatud püsikettalt: {len(state['positions'])} avatud positsiooni")
+        else:
+            save_state()
+            add_event("uus paper-portfell loodud €1000 algkapitaliga")
     except Exception as e:
-        log.exception("Could not load state: %s", e)
+        persistence_ok = False
+        persistence_error = str(e)[:240]
+        log.exception("Could not load persistent portfolio: %s", e)
+        raise RuntimeError(f"Portfolio persistence unavailable: {e}") from e
 
 def save_state():
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STATE_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2))
-    tmp.replace(STATE_FILE)
+    global persistence_ok, persistence_error
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = STATE_FILE.with_suffix(".tmp")
+        with tmp.open("w") as f:
+            json.dump(state, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(STATE_FILE)
+        persistence_ok = True
+        persistence_error = ""
+    except Exception as e:
+        persistence_ok = False
+        persistence_error = str(e)[:240]
+        log.exception("Could not save persistent portfolio: %s", e)
+        raise
 
 def authorized(update):
     return bool(ALLOWED_USER_ID) and str(update.effective_user.id) == ALLOWED_USER_ID
@@ -306,6 +332,9 @@ def scan_once():
     update_agent("jano",jano_status,"Koondab agentide tulemused",f"{verdict}: {decision_text}; Teataja uudisvoog pole veel ühendatud",symbol=decision_symbol,checks=len(pairs),decision=verdict)
     rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else ("unavailable" if rugcheck_stats["errors"] else "checking")
     with state_lock:
+        if not persistence_ok:
+            raise RuntimeError(f"paper trading paused: persistent storage unavailable ({persistence_error})")
+        state_before_scan = copy.deepcopy(state)
         history_map = state.setdefault("price_history", {})
         for candidate in eligible[:20]:
             token_address = (candidate.get("baseToken") or {}).get("address")
@@ -349,7 +378,12 @@ def scan_once():
                 state["daily_count"] += 1
                 add_event(f"ost {symbol} | €{TRADE_SIZE:.2f} | momentum +{float((p.get('priceChange') or {}).get('m5') or 0):.1f}%")
                 if len(state["positions"]) >= MAX_POSITIONS: break
-        save_state()
+        try:
+            save_state()
+        except Exception:
+            state.clear()
+            state.update(state_before_scan)
+            raise
         last_candidates = [{
             "symbol": (p.get("baseToken") or {}).get("symbol","?"),
             "name": (p.get("baseToken") or {}).get("name",""),
@@ -460,7 +494,7 @@ def live_data():
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"take_profit_pct":TAKE_PROFIT*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
+            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"min_market_cap":10000,"max_market_cap":MAX_MARKET_CAP_USD,"min_liquidity":MIN_LIQUIDITY_USD,"min_m5_volume":MIN_M5_VOLUME_USD,"min_m5_change":MIN_M5_CHANGE,"min_buy_sell_ratio":MIN_BUY_SELL_RATIO,"stop_loss_pct":STOP_LOSS*100,"take_profit_pct":TAKE_PROFIT*100,"scan_seconds":SCAN_SECONDS,"trade_size":TRADE_SIZE}}
     return jsonify(payload)
 
 def run_web():
