@@ -1,7 +1,9 @@
-import os, json, time, logging, asyncio
+import os, json, time, logging, asyncio, threading
 from pathlib import Path
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 import requests
+from flask import Flask, jsonify, request, Response
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -9,7 +11,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("spider-bot")
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_USER_ID = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
-STATE_FILE = Path(os.environ.get("STATE_FILE", "data/state.json"))
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
+STATE_FILE = Path(os.environ.get("STATE_FILE", "/var/data/state.json"))
 STARTING_BALANCE = 50.0
 TRADE_SIZE = 5.0
 MAX_POSITIONS = 4
@@ -25,7 +28,17 @@ DEX = "https://api.dexscreener.com"
 paused = False
 last_scan = "not yet"
 last_error = ""
+last_pair_count = 0
+last_candidate_count = 0
+last_candidates = []
+events = []
+state_lock = threading.RLock()
 state = {"cash": STARTING_BALANCE, "positions": {}, "trades": [], "day": "", "daily_count": 0}
+
+def add_event(message):
+    events.append({"time": datetime.now(timezone.utc).isoformat(), "message": message})
+    del events[:-40]
+    log.info(message)
 
 def load_state():
     global state
@@ -43,12 +56,11 @@ def save_state():
     tmp.write_text(json.dumps(state, indent=2))
     tmp.replace(STATE_FILE)
 
-def authorized(update: Update) -> bool:
+def authorized(update):
     return bool(ALLOWED_USER_ID) and str(update.effective_user.id) == ALLOWED_USER_ID
 
 async def reply_denied(update):
-    uid = update.effective_user.id
-    await update.message.reply_text(f"⛔ Ligipääs puudub. Sinu Telegrami ID: {uid}")
+    await update.message.reply_text(f"⛔ Ligipääs puudub. Sinu Telegrami ID: {update.effective_user.id}")
 
 def get_json(url):
     r = requests.get(url, timeout=15, headers={"User-Agent":"SPIDER-BOT-paper/1.0"})
@@ -60,135 +72,139 @@ def discover_candidates():
     addresses = list(dict.fromkeys(x.get("tokenAddress") for x in profiles
                       if x.get("chainId") == "solana" and x.get("tokenAddress")))
     candidates = []
-    # DexScreener token endpoint supports comma-separated addresses in small batches.
-    for i in range(0, min(len(addresses), 60), 30):
-        batch = addresses[i:i+30]
-        data = get_json(f"{DEX}/tokens/v1/solana/{','.join(batch)}")
+    for i in range(0, min(len(addresses), 90), 30):
+        data = get_json(f"{DEX}/tokens/v1/solana/{','.join(addresses[i:i+30])}")
         if isinstance(data, list):
             candidates.extend(data)
     return candidates
 
 def pair_age_hours(pair):
     created = pair.get("pairCreatedAt")
-    if not created:
-        return 999999
+    if not created: return 999999
     return max(0, (time.time()*1000 - float(created))/3600000)
 
 def scan_once():
-    global last_scan, last_error
-    last_error = ""
+    global last_scan, last_error, last_pair_count, last_candidate_count, last_candidates
     pairs = discover_candidates()
     eligible = []
     for p in pairs:
         try:
-            if p.get("chainId") != "solana":
-                continue
+            if p.get("chainId") != "solana": continue
             liq = float((p.get("liquidity") or {}).get("usd") or 0)
             vol = float((p.get("volume") or {}).get("m5") or 0)
             change = float((p.get("priceChange") or {}).get("m5") or 0)
             age = pair_age_hours(p)
             price = float(p.get("priceUsd") or 0)
             address = (p.get("baseToken") or {}).get("address")
-            if not address or price <= 0:
-                continue
+            if not address or price <= 0: continue
             if liq >= MIN_LIQUIDITY_USD and vol >= MIN_M5_VOLUME_USD and change >= MIN_M5_CHANGE and age <= MAX_AGE_HOURS:
                 eligible.append(p)
         except (TypeError, ValueError):
             continue
     eligible.sort(key=lambda p: float((p.get("volume") or {}).get("m5") or 0), reverse=True)
-    # Update current prices and close paper positions on TP/SL.
-    by_address = {((p.get("baseToken") or {}).get("address")):p for p in pairs if p.get("baseToken")}
-    for address, pos in list(state["positions"].items()):
-        p = by_address.get(address)
-        if not p:
-            continue
-        price = float(p.get("priceUsd") or 0)
-        if price <= 0:
-            continue
-        pos["last_price"] = price
-        pnl_pct = price / pos["entry_price"] - 1
-        if pnl_pct >= TAKE_PROFIT or pnl_pct <= STOP_LOSS:
-            proceeds = pos["quantity"] * price
-            pnl = proceeds - pos["cost"]
-            state["cash"] += proceeds
-            state["trades"].append({"symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],
-                "exit":price,"pnl":pnl,"pnl_pct":pnl_pct,"closed_at":datetime.now(timezone.utc).isoformat()})
-            del state["positions"][address]
-    today = datetime.now(timezone.utc).date().isoformat()
-    if state.get("day") != today:
-        state["day"], state["daily_count"] = today, 0
-    if not paused and state["daily_count"] < MAX_TRADES_PER_DAY:
-        for p in eligible:
-            address = p["baseToken"]["address"]
-            if address in state["positions"] or len(state["positions"]) >= MAX_POSITIONS or state["cash"] < TRADE_SIZE:
-                continue
-            price = float(p["priceUsd"])
-            state["cash"] -= TRADE_SIZE
-            state["positions"][address] = {"symbol":p["baseToken"].get("symbol","?"),"entry_price":price,
-                "last_price":price,"quantity":TRADE_SIZE/price,"cost":TRADE_SIZE,
-                "opened_at":datetime.now(timezone.utc).isoformat(),"liquidity_usd":float((p.get("liquidity") or {}).get("usd") or 0)}
-            state["daily_count"] += 1
-            if len(state["positions"]) >= MAX_POSITIONS:
-                break
-    save_state()
-    last_scan = datetime.now(timezone.utc).isoformat()
+    with state_lock:
+        by_address = {(p.get("baseToken") or {}).get("address"):p for p in pairs if p.get("baseToken")}
+        for address, pos in list(state["positions"].items()):
+            p = by_address.get(address)
+            if not p: continue
+            price = float(p.get("priceUsd") or 0)
+            if price <= 0: continue
+            pos["last_price"] = price
+            pnl_pct = price / pos["entry_price"] - 1
+            if pnl_pct >= TAKE_PROFIT or pnl_pct <= STOP_LOSS:
+                proceeds = pos["quantity"] * price
+                pnl = proceeds - pos["cost"]
+                state["cash"] += proceeds
+                state["trades"].append({"symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],
+                    "exit":price,"pnl":pnl,"pnl_pct":pnl_pct,"closed_at":datetime.now(timezone.utc).isoformat()})
+                add_event(f"MÜÜK {pos['symbol']} | {pnl_pct*100:+.1f}% | {pnl:+.2f} €")
+                del state["positions"][address]
+        today = datetime.now(timezone.utc).date().isoformat()
+        if state.get("day") != today:
+            state["day"], state["daily_count"] = today, 0
+        if not paused and state["daily_count"] < MAX_TRADES_PER_DAY:
+            for p in eligible:
+                address = p["baseToken"]["address"]
+                if address in state["positions"] or len(state["positions"]) >= MAX_POSITIONS or state["cash"] < TRADE_SIZE: continue
+                price = float(p["priceUsd"])
+                symbol = p["baseToken"].get("symbol","?")
+                state["cash"] -= TRADE_SIZE
+                state["positions"][address] = {"symbol":symbol,"entry_price":price,"last_price":price,
+                    "quantity":TRADE_SIZE/price,"cost":TRADE_SIZE,"opened_at":datetime.now(timezone.utc).isoformat(),
+                    "liquidity_usd":float((p.get("liquidity") or {}).get("usd") or 0)}
+                state["daily_count"] += 1
+                add_event(f"OST {symbol} | €{TRADE_SIZE:.2f} | momentum +{float((p.get('priceChange') or {}).get('m5') or 0):.1f}%")
+                if len(state["positions"]) >= MAX_POSITIONS: break
+        save_state()
+        last_candidates = [{
+            "symbol": (p.get("baseToken") or {}).get("symbol","?"),
+            "name": (p.get("baseToken") or {}).get("name",""),
+            "price": p.get("priceUsd"),
+            "change5m": (p.get("priceChange") or {}).get("m5",0),
+            "volume5m": (p.get("volume") or {}).get("m5",0),
+            "liquidity": (p.get("liquidity") or {}).get("usd",0),
+            "address": (p.get("baseToken") or {}).get("address",""),
+            "url": p.get("url","")
+        } for p in eligible[:20]]
+        last_pair_count, last_candidate_count = len(pairs), len(eligible)
+        last_scan = datetime.now(timezone.utc).isoformat()
+        last_error = ""
     return len(pairs), len(eligible)
 
 async def scanner_loop(app):
     while True:
         try:
             total, found = await asyncio.get_running_loop().run_in_executor(app.bot_data["executor"], scan_once)
-            log.info("Scan complete: %s Solana pairs, %s momentum candidates", total, found)
+            add_event(f"Skann valmis: {total} paari, {found} signaali")
         except Exception as e:
             global last_error
             last_error = str(e)
+            add_event(f"SKANNI VIGA: {e}")
             log.exception("Scanner failed")
-        await __import__("asyncio").sleep(SCAN_SECONDS)
+        await asyncio.sleep(SCAN_SECONDS)
 
 async def post_init(app):
-    import asyncio
-    app.bot_data["executor"] = __import__("concurrent.futures").futures.ThreadPoolExecutor(max_workers=1)
+    app.bot_data["executor"] = ThreadPoolExecutor(max_workers=1)
     app.create_task(scanner_loop(app))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ALLOWED_USER_ID:
-        await update.message.reply_text(f"SPIDER BOT online. Telegram ID: {update.effective_user.id}. Lisa see Renderi TELEGRAM_ALLOWED_USER_ID muutujasse.")
+        await update.message.reply_text(f"SPIDER BOT online. Telegram ID: {update.effective_user.id}.")
     elif authorized(update):
         await update.message.reply_text("🕷️ SPIDER BOT aktiivne! PAPER DEMO €50.\nKäsud: /status /portfolio /trades /scan /pause /resume")
-    else:
-        await reply_denied(update)
+    else: await reply_denied(update)
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
-    value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
-    await update.message.reply_text(
-        f"🕷️ SPIDER BOT STATUS\nTelegram: CONNECTED\nEngine: {'PAUSED' if paused else 'RUNNING'}\n"
+    with state_lock:
+        value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
+        msg = (f"🕷️ SPIDER BOT STATUS\nTelegram: CONNECTED\nEngine: {'PAUSED' if paused else 'RUNNING'}\n"
         f"Mode: PAPER DEMO\nCash: €{state['cash']:.2f}\nPositions value: €{value:.2f}\n"
-        f"Open positions: {len(state['positions'])}\nScanner last run: {last_scan}\n"
-        f"Last scanner error: {last_error or 'none'}\nReal trades: DISABLED"
-    )
+        f"Open positions: {len(state['positions'])}\nPairs: {last_pair_count} | Signals: {last_candidate_count}\n"
+        f"Scanner last run: {last_scan}\nLast scanner error: {last_error or 'none'}\nReal trades: DISABLED")
+    await update.message.reply_text(msg)
 
 async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
-    value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
-    await update.message.reply_text(f"📊 PAPER PORTFOLIO\nCash: €{state['cash']:.2f}\nOpen positions: €{value:.2f}\nTotal: €{state['cash']+value:.2f}\nRealized trades: {len(state['trades'])}")
+    with state_lock:
+        value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
+        await update.message.reply_text(f"📊 PAPER PORTFOLIO\nCash: €{state['cash']:.2f}\nOpen positions: €{value:.2f}\nTotal: €{state['cash']+value:.2f}\nRealized trades: {len(state['trades'])}")
 
 async def trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
-    rows = state["trades"][-8:]
-    if not rows: return await update.message.reply_text("Tehinguid pole veel suletud. Vaata avatud positsioone käsuga /portfolio.")
-    lines = [f"{x['symbol']}: {x['pnl_pct']*100:+.1f}% ({x['pnl']:+.2f} €)" for x in rows]
-    await update.message.reply_text("📈 VIIMASED DEMOTEHINGUD\n" + "\n".join(lines))
+    with state_lock: rows = state["trades"][-8:]
+    if not rows: return await update.message.reply_text("Suletud demotehinguid veel pole.")
+    await update.message.reply_text("📈 VIIMASED DEMOTEHINGUD\n" + "\n".join(f"{x['symbol']}: {x['pnl_pct']*100:+.1f}% ({x['pnl']:+.2f} €)" for x in rows))
 
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
-    await update.message.reply_text(f"Viimane skann: {last_scan}\nViga: {last_error or 'puudub'}")
+    await update.message.reply_text(f"Viimane skann: {last_scan}\nPaare: {last_pair_count}\nSignaale: {last_candidate_count}\nViga: {last_error or 'puudub'}")
 
 async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global paused
     if not authorized(update): return await reply_denied(update)
     paused=True
-    await update.message.reply_text("⏸️ Paper-mootor peatatud. Avatud positsioone jälgitakse edasi.")
+    await update.message.reply_text("⏸️ Uued paper-ostud peatatud. Avatud positsioone jälgitakse edasi.")
 
 async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global paused
@@ -196,13 +212,46 @@ async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     paused=False
     await update.message.reply_text("▶️ Paper-mootor jätkab.")
 
+web = Flask(__name__)
+def check_auth(auth):
+    return auth and auth.username == "spider" and DASHBOARD_PASSWORD and auth.password == DASHBOARD_PASSWORD
+def auth_required():
+    return Response("Autentimine vajalik", 401, {"WWW-Authenticate": 'Basic realm="SPIDER BOT"'})
+@web.get("/health")
+def health():
+    return jsonify({"ok": True, "service": "spiderbot"})
+@web.get("/")
+def dashboard():
+    if not check_auth(request.authorization): return auth_required()
+    return Response(Path("dashboard.html").read_text(), mimetype="text/html")
+@web.get("/api/live")
+def live_data():
+    if not check_auth(request.authorization): return auth_required()
+    with state_lock:
+        positions = []
+        for address, p in state["positions"].items():
+            price = p.get("last_price",p["entry_price"])
+            positions.append({"symbol":p["symbol"],"address":address,"entry":p["entry_price"],"price":price,
+                "pnl":p["quantity"]*price-p["cost"],"pnl_pct":(price/p["entry_price"]-1)*100})
+        pos_value = sum(p["quantity"]*p.get("last_price",p["entry_price"]) for p in state["positions"].values())
+        payload = {"cash":state["cash"],"positions_value":pos_value,"total":state["cash"]+pos_value,
+            "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
+            "trades":state["trades"][-10:],"candidates":last_candidates,"events":events[-20:],
+            "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
+            "signal_count":last_candidate_count,"paused":paused,"mode":"PAPER DEMO"}
+    return jsonify(payload)
+
+def run_web():
+    web.run(host="0.0.0.0", port=int(os.environ.get("PORT","10000")), use_reloader=False)
+
 def main():
     if not TOKEN: raise RuntimeError("Missing TELEGRAM_BOT_TOKEN")
     load_state()
+    threading.Thread(target=run_web, daemon=True).start()
     app = Application.builder().token(TOKEN).post_init(post_init).build()
     for cmd, fn in [("start",start),("status",status),("portfolio",portfolio),("trades",trades),("scan",scan),("pause",pause_cmd),("resume",resume_cmd)]:
         app.add_handler(CommandHandler(cmd,fn))
-    log.info("SPIDER BOT Telegram + paper scanner starting")
+    add_event("SPIDER BOT käivitus; PAPER DEMO")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
