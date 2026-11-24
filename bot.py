@@ -60,7 +60,7 @@ def authorized(update):
     return bool(ALLOWED_USER_ID) and str(update.effective_user.id) == ALLOWED_USER_ID
 
 async def reply_denied(update):
-    await update.message.reply_text(f"⛔ Ligipääs puudub. Sinu Telegrami ID: {update.effective_user.id}")
+    await update.message.reply_text(f"⛔ ligipääs puudub. sinu telegrami id: {update.effective_user.id}")
 
 def get_json(url):
     r = requests.get(url, timeout=15, headers={"User-Agent":"SPIDER-BOT-paper/1.0"})
@@ -129,7 +129,7 @@ def scan_once():
                 state["cash"] += proceeds
                 state["trades"].append({"symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],
                     "exit":price,"pnl":pnl,"pnl_pct":pnl_pct,"closed_at":datetime.now(timezone.utc).isoformat()})
-                add_event(f"MÜÜK {pos['symbol']} | {pnl_pct*100:+.1f}% | {pnl:+.2f} €")
+                add_event(f"müük {pos['symbol']} | {pnl_pct*100:+.1f}% | {pnl:+.2f} €")
                 del state["positions"][address]
         today = datetime.now(timezone.utc).date().isoformat()
         if state.get("day") != today:
@@ -145,7 +145,7 @@ def scan_once():
                     "quantity":TRADE_SIZE/price,"cost":TRADE_SIZE,"opened_at":datetime.now(timezone.utc).isoformat(),
                     "liquidity_usd":float((p.get("liquidity") or {}).get("usd") or 0), "market_cap":float(p.get("marketCap") or p.get("fdv") or 0)}
                 state["daily_count"] += 1
-                add_event(f"OST {symbol} | €{TRADE_SIZE:.2f} | momentum +{float((p.get('priceChange') or {}).get('m5') or 0):.1f}%")
+                add_event(f"ost {symbol} | €{TRADE_SIZE:.2f} | momentum +{float((p.get('priceChange') or {}).get('m5') or 0):.1f}%")
                 if len(state["positions"]) >= MAX_POSITIONS: break
         save_state()
         last_candidates = [{
@@ -169,11 +169,11 @@ async def scanner_loop(app):
     while True:
         try:
             total, found = await asyncio.get_running_loop().run_in_executor(app.bot_data["executor"], scan_once)
-            add_event(f"Skann valmis: {total} paari, {found} signaali")
+            add_event(f"skann valmis: {total} paari, {found} signaali")
         except Exception as e:
             global last_error
             last_error = str(e)
-            add_event(f"SKANNI VIGA: {e}")
+            add_event(f"skanni viga: {e}")
             log.exception("Scanner failed")
         await asyncio.sleep(SCAN_SECONDS)
 
@@ -185,30 +185,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ALLOWED_USER_ID:
         await update.message.reply_text(f"SPIDER BOT online. Telegram ID: {update.effective_user.id}.")
     elif authorized(update):
-        await update.message.reply_text("🕷️ SPIDER BOT aktiivne! PAPER DEMO €50.\nKäsud: /status /portfolio /trades /scan /pause /resume")
+        await update.message.reply_text("🕷️ spider bot aktiivne! paper demo €50.\nkäsud: /status /portfolio /trades /scan /pause /resume")
     else: await reply_denied(update)
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
     with state_lock:
         value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
-        msg = (f"🕷️ SPIDER BOT STATUS\nTelegram: CONNECTED\nEngine: {'PAUSED' if paused else 'RUNNING'}\n"
-        f"Mode: PAPER DEMO\nCash: €{state['cash']:.2f}\nPositions value: €{value:.2f}\n"
-        f"Open positions: {len(state['positions'])}\nStop loss: -5% | Scan: 15s | Min market cap: $10k\nPairs: {last_pair_count} | Signals: {last_candidate_count}\n"
-        f"Scanner last run: {last_scan}\nLast scanner error: {last_error or 'none'}\nReal trades: DISABLED")
+        msg = (f"🕷️ spider bot status\ntelegram: connected\nmootor: {'pausil' if paused else 'töötab'}\n"
+        f"režiim: paper demo\nvaba raha: €{state['cash']:.2f}\npositsioonide väärtus: €{value:.2f}\n"
+        f"avatud positsioonid: {len(state['positions'])}\nstop loss: -5% | skann: 15s | min turuväärtus: $10k\npaarid: {last_pair_count} | signaalid: {last_candidate_count}\n"
+        f"viimane skann: {last_scan}\nskanneri viga: {last_error or 'puudub'}\npäris tehingud: väljas")
     await update.message.reply_text(msg)
 
 async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
     with state_lock:
         value = sum(x["quantity"]*x.get("last_price",x["entry_price"]) for x in state["positions"].values())
-        await update.message.reply_text(f"📊 PAPER PORTFOLIO\nCash: €{state['cash']:.2f}\nOpen positions: €{value:.2f}\nTotal: €{state['cash']+value:.2f}\nRealized trades: {len(state['trades'])}")
+        await update.message.reply_text(f"📊 paper portfell\nCash: €{state['cash']:.2f}\nOpen positions: €{value:.2f}\nTotal: €{state['cash']+value:.2f}\nsuletud tehinguid: {len(state['trades'])}")
 
 async def trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
     with state_lock: rows = state["trades"][-8:]
-    if not rows: return await update.message.reply_text("Suletud demotehinguid veel pole.")
-    await update.message.reply_text("📈 VIIMASED DEMOTEHINGUD\n" + "\n".join(f"{x['symbol']}: {x['pnl_pct']*100:+.1f}% ({x['pnl']:+.2f} €)" for x in rows))
+    if not rows: return await update.message.reply_text("suletud demotehinguid veel pole.")
+    await update.message.reply_text("📈 viimased demotehingud\n" + "\n".join(f"{x['symbol']}: {x['pnl_pct']*100:+.1f}% ({x['pnl']:+.2f} €)" for x in rows))
 
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update): return await reply_denied(update)
@@ -218,13 +218,13 @@ async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global paused
     if not authorized(update): return await reply_denied(update)
     paused=True
-    await update.message.reply_text("⏸️ Uued paper-ostud peatatud. Avatud positsioone jälgitakse edasi.")
+    await update.message.reply_text("⏸️ uued paper-ostud peatatud. avatud positsioone jälgitakse edasi.")
 
 async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global paused
     if not authorized(update): return await reply_denied(update)
     paused=False
-    await update.message.reply_text("▶️ Paper-mootor jätkab.")
+    await update.message.reply_text("▶️ paper-mootor jätkab.")
 
 web = Flask(__name__)
 def check_auth(auth):
@@ -265,7 +265,7 @@ def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
     for cmd, fn in [("start",start),("status",status),("portfolio",portfolio),("trades",trades),("scan",scan),("pause",pause_cmd),("resume",resume_cmd)]:
         app.add_handler(CommandHandler(cmd,fn))
-    add_event("SPIDER BOT käivitus; PAPER DEMO")
+    add_event("spider bot käivitus; paper demo")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
