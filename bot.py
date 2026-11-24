@@ -104,6 +104,14 @@ def scan_once():
             continue
     eligible.sort(key=lambda p: float((p.get("volume") or {}).get("m5") or 0), reverse=True)
     with state_lock:
+        history_map = state.setdefault("price_history", {})
+        for candidate in eligible[:20]:
+            token_address = (candidate.get("baseToken") or {}).get("address")
+            token_price = float(candidate.get("priceUsd") or 0)
+            if token_address and token_price > 0:
+                points = history_map.setdefault(token_address, [])
+                points.append({"t": int(time.time()), "p": token_price})
+                del points[:-80]
         by_address = {(p.get("baseToken") or {}).get("address"):p for p in pairs if p.get("baseToken")}
         for address, pos in list(state["positions"].items()):
             p = by_address.get(address)
