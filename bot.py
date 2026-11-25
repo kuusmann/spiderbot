@@ -739,7 +739,7 @@ def apply_wallet_copy_signals(safe_candidates, pairs):
                     pass
             consensus = len({w for w in recent if w}) >= 2
             performance = next((w for w in wallet_performance() if w.get("wallet") == wallet), None)
-            proven = bool(performance and performance.get("trades",0) >= 3 and performance.get("win_rate_pct",0) >= 60 and performance.get("pnl_eur",0) > 0)
+            proven = bool(performance and performance.get("trades",0) >= 2 and performance.get("win_rate_pct",0) >= 55 and performance.get("pnl_eur",0) > 0)
             if not (consensus or proven):
                 continue
             if paused or state.get("session_halted") or mint in state["positions"] or len(state["positions"])>=MAX_POSITIONS or state["daily_count"]>=MAX_TRADES_PER_DAY:
