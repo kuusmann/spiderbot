@@ -645,7 +645,7 @@ def dynamic_trade_size(equity, daily_pnl):
     """Compound measured paper position sizes with a strict total-exposure ceiling."""
     fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)
     invested = sum(float(p.get("cost", 0)) for p in state.get("positions", {}).values())
-    exposure_room = max(0.0, float(equity) * MAX_PORTFOLIO_EXPOSURE_PCT - invested
+    exposure_room = max(0.0, float(equity) * MAX_PORTFOLIO_EXPOSURE_PCT - invested)
     return round(max(0.0, min(float(equity) * fraction,
                               float(state.get("cash", 0)) - SIM_TX_FEE_EUR, exposure_room)), 2)
 
