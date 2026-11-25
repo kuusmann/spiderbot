@@ -950,7 +950,8 @@ def apply_wallet_copy_signals(safe_candidates, pairs):
             price=float(candidate.get("priceUsd") or 0)
             if price<=0: continue
             equity=float(state["cash"])+sum(float(p.get("quantity",0))*float(p.get("last_price",p.get("entry_price",0))) for p in state["positions"].values())
-            size=round(min(equity*POSITION_RISK_PCT*0.5,float(state["cash"])-SIM_TX_FEE_EUR),2)
+            size=round(dynamic_trade_size(equity, daily_pnl_unlocked()) * 0.5, 2)
+            size=round(size * max(0.5, 1.0 - min(80.0, float(candidate.get("_risk_score") or 0)) / 160.0), 2)
             if size<=1: continue
             execution=simulated_fill("buy",price)
             if execution is None: continue
