@@ -35,14 +35,14 @@ SIM_LATENCY_MS = 300
 SIM_FAILED_TX_RATE = 0.12
 SIM_TX_FEE_EUR = 0.10
 SIM_FAILED_TX_FEE_EUR = 0.05
-MIN_LIQUIDITY_USD = 150000.0
-MIN_MARKET_CAP_USD = 10000000.0
+MIN_LIQUIDITY_USD = 8000.0
+MIN_MARKET_CAP_USD = 50000.0
 MAX_MARKET_CAP_USD = 2000000000.0
-MIN_POOL_AGE_MINUTES = 1440.0
+MIN_POOL_AGE_MINUTES = 30.0
 MAX_POOL_AGE_MINUTES = 2628000.0
 MIN_VOLUME_SPIKE_MULTIPLE = 1.0
 MIN_BUYER_SELLER_RATIO = 1.0
-MIN_VOLUME_24H_USD = 500000.0
+MIN_VOLUME_24H_USD = 25000.0
 MIN_VOLUME_5M_USD = 1000.0
 MIN_BUYS_5M = 3
 MIN_DIP_PCT = 1.0
@@ -825,7 +825,7 @@ def scan_once():
                 continue
             if liquidity < MIN_LIQUIDITY_USD:
                 continue
-            if change24h <= 0 or change1h < -2.5:
+            if change24h <= 0 or change1h < -5.0:
                 continue
             volume24 = float((pair.get("volume") or {}).get("h24") or 0)
             if volume24 < MIN_VOLUME_24H_USD or volume5 < MIN_VOLUME_5M_USD or buys < MIN_BUYS_5M:
