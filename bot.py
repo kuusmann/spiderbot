@@ -182,7 +182,7 @@ def load_state():
         if state.get("day") != today or not has_daily_baseline:
             state["day"] = today
             state["daily_count"] = 0
-            state["stopped_tokens"] = {}
+            # Keep stop-loss cooldowns until their own expiry, across day rollover.
             state["session_halted"] = False
             state["session_halt_reason"] = ""
             state["day_start_equity"] = _portfolio_equity_unlocked()
@@ -282,6 +282,45 @@ def update_market_snapshots(pairs):
             del ph[:-420]
             del vh[:-140]
     return features
+
+def risk_assessment(pair, report):
+    """Estimate risk from known report fields; never overrides hard RugCheck gates."""
+    risk = min(100.0, max(0.0, float(report.get("score") or 0)))
+    factors = []
+    lp_locked = _number_from_sources([report], ["lpLockedPct", "lp_locked_pct"])
+    if lp_locked is not None and lp_locked < 90:
+        risk += min(18.0, (90.0 - lp_locked) * 0.6)
+        factors.append(f"LP lock {lp_locked:.1f}%")
+    holders = report.get("topHolders")
+    if isinstance(holders, list) and holders:
+        shares = [_number_from_sources([h], ["pct", "percentage"]) for h in holders
+                  if isinstance(h, dict) and not h.get("isPool") and not h.get("isBondingCurve")]
+        shares = [x for x in shares if x is not None]
+        if len(shares) >= 5:
+            top_share = sum(sorted(shares, reverse=True)[:10])
+            if top_share > 15:
+                risk += min(22.0, (top_share - 15.0) * 0.8)
+                factors.append(f"top holder concentration {top_share:.1f}%")
+    creator_pct = _number_from_sources([report], ["creatorPct", "creator_pct"])
+    if creator_pct is not None and creator_pct > 1:
+        risk += min(18.0, creator_pct * 2.0)
+        factors.append(f"creator holds {creator_pct:.1f}%")
+    networks = report.get("insiderNetworks")
+    clusters = networks.get("clusters", networks.get("networks")) if isinstance(networks, dict) else networks
+    if isinstance(clusters, list):
+        shares = [_number_from_sources([x], ["pct", "percentage", "combinedPct"])
+                  for x in clusters if isinstance(x, dict)]
+        shares = [x for x in shares if x is not None]
+        if shares and max(shares) > 10:
+            risk += min(20.0, (max(shares) - 10.0) * 0.8)
+            factors.append(f"insider cluster {max(shares):.1f}%")
+    liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
+    if 0 < liquidity < 20000:
+        risk += 8.0
+        factors.append("low absolute liquidity")
+    risk = round(min(100.0, risk), 1)
+    return {"score": risk, "level": "HIGH" if risk >= 60 else ("MEDIUM" if risk >= 30 else "LOW"),
+            "factors": factors}
 
 def strict_safety_check(pair, report):
     """Paper-entry safety: reject confirmed hazards, but do not require unavailable analytics."""
@@ -688,11 +727,60 @@ def backtest_summary():
     wins=[float(t.get("pnl") or 0) for t in trades if float(t.get("pnl") or 0)>0]; losses=[float(t.get("pnl") or 0) for t in trades if float(t.get("pnl") or 0)<=0]
     return {"sample_size":len(trades),"win_rate_pct":round(100*len(wins)/len(trades),1) if trades else 0,"net_pnl_eur":round(sum(float(t.get("pnl") or 0) for t in trades),2),"profit_factor":round(sum(wins)/abs(sum(losses)),2) if losses and sum(losses)!=0 else None,"signals_logged":len(signals),"method":"realized paper trades; not historical replay"}
 
+def token_entry_blocked(address):
+    if not address:
+        return True, "missing token address"
+    if address in BLACKLISTED_TOKEN_ADDRESSES:
+        return True, "manual blacklist"
+    with state_lock:
+        expiry = state.setdefault("stopped_tokens", {}).get(address)
+        if expiry is None:
+            return False, ""
+        if isinstance(expiry, (int, float)):
+            blocked = float(expiry) > time.time()
+        else:
+            # Legacy state stored a Tallinn date instead of a timestamp.
+            blocked = str(expiry) == _tallinn_day()
+        if not blocked:
+            state["stopped_tokens"].pop(address, None)
+        return blocked, "temporary stop-loss cooldown" if blocked else ""
+
 def score_candidate(pair):
     tx = (pair.get("txns") or {}).get("m5") or {}
     buys = int(tx.get("buys") or 0)
     sells = int(tx.get("sells") or 0)
     return buys / max(sells, 1), "momentum", buys / max(sells, 1)
+
+def position_exit_decision(pos, pair, price, age_seconds):
+    """Deterministic exit policy; returns (reason, partial) for paper trades."""
+    entry = float(pos.get("entry_price") or 0)
+    if entry <= 0 or price <= 0:
+        return None, False
+    pnl_pct = price / entry - 1.0
+    runner = bool(pos.get("runner"))
+    half_sold = bool(pos.get("runner_half_sold"))
+    peak = max(float(pos.get("peak_price") or entry), price)
+    if pnl_pct <= SCALP_STOP_LOSS:
+        return f"stop loss {SCALP_STOP_LOSS * 100:.0f}%", False
+    if runner and not half_sold and pnl_pct >= RUNNER_HALF_TP:
+        return f"runner partial TP +{RUNNER_HALF_TP * 100:.0f}%", True
+    if runner and half_sold and price <= float(pos.get("runner_peak_price") or peak) * (1 - RUNNER_TRAIL_GIVEBACK):
+        return f"runner trailing giveback {RUNNER_TRAIL_GIVEBACK * 100:.0f}%", False
+    if not runner and pnl_pct >= SCALP_TAKE_PROFIT:
+        return f"scalp TP +{SCALP_TAKE_PROFIT * 100:.0f}%", False
+    if not runner and pnl_pct >= 0.12 and price <= peak * 0.93:
+        return "adaptive profit-protection trail", False
+    if pnl_pct > 0.05:
+        change5 = float((pair.get("priceChange") or {}).get("m5") or 0)
+        current_liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
+        entry_liquidity = float(pos.get("liquidity_usd") or 0)
+        if change5 <= -8.0:
+            return "adaptive momentum deterioration", False
+        if entry_liquidity > 0 and current_liquidity > 0 and current_liquidity <= entry_liquidity * 0.45:
+            return "adaptive liquidity contraction", False
+    if not runner and age_seconds >= TIME_STOP_SECONDS and abs(pnl_pct) <= FLAT_BAND_PCT:
+        return f"time stop {TIME_STOP_SECONDS // 60}m flat", False
+    return None, False
 
 def dynamic_trade_size(equity, daily_pnl):
     """Compound measured paper position sizes with a strict total-exposure ceiling."""
@@ -897,7 +985,8 @@ def scan_once():
                 continue
             if gain_10m is not None and gain_10m > MAX_10M_PRICE_GAIN_PCT:
                 continue
-            if address in state.get("stopped_tokens", {}):
+            is_blocked, _ = token_entry_blocked(address)
+            if is_blocked:
                 continue
             volume_multiple = float(volume_multiple) if volume_multiple is not None else 1.0
             pair["_momentum"] = {
@@ -967,6 +1056,8 @@ def scan_once():
         recovery_factor = max(0.0, float((candidate.get("_momentum") or {}).get("bounce_2m_pct") or 0))
         candidate["_rank_score"] = round(trade_ratio * (1.0 + volume_factor) * (1.0 + min(recovery_factor, 5.0) / 10.0), 4)
         candidate["_momentum_score"] = momentum_score(candidate)
+        candidate["_risk"] = risk_assessment(candidate, report)
+        candidate["_risk_score"] = candidate["_risk"]["score"]
         candidate["_rugcheck_report"] = report
         safe_candidates.append(candidate)
 
@@ -1030,7 +1121,7 @@ def scan_once():
         if state.get("day") != today:
             state["day"] = today
             state["daily_count"] = 0
-            state["stopped_tokens"] = {}
+            # Keep stop-loss cooldowns until their own expiry, across day rollover.
             state["session_halted"] = False
             state["session_halt_reason"] = ""
             state["day_start_equity"] = float(state["cash"]) + sum(
@@ -1072,18 +1163,7 @@ def scan_once():
             pnl_pct = price / float(pos["entry_price"]) - 1
             runner = bool(pos.get("runner"))
             half_sold = bool(pos.get("runner_half_sold"))
-            reason, partial = None, False
-
-            if runner and not half_sold and pnl_pct >= RUNNER_HALF_TP:
-                reason, partial = "runner half TP +50%", True
-            elif runner and half_sold and price <= float(pos.get("runner_peak_price") or pos["peak_price"]) * (1 - RUNNER_TRAIL_GIVEBACK):
-                reason = "runner trailing stop -25%"
-            elif pnl_pct <= SCALP_STOP_LOSS:
-                reason = "stop loss -15%"
-            elif not runner and pnl_pct >= SCALP_TAKE_PROFIT:
-                reason = "scalp TP +30%"
-            elif not runner and age_seconds >= TIME_STOP_SECONDS and abs(pnl_pct) <= FLAT_BAND_PCT:
-                reason = "time stop 4m flat"
+            reason, partial = position_exit_decision(pos, pair, price, age_seconds)
 
             if reason:
                 quantity = float(pos["quantity"]) / 2 if partial else float(pos["quantity"])
@@ -1101,7 +1181,9 @@ def scan_once():
                     "symbol":pos["symbol"],"address":address,"entry":pos["entry_price"],"exit":execution_price,
                     "pnl":realized,"pnl_pct":pnl_pct,"closed_at":datetime.now(timezone.utc).isoformat(),
                     "reason":reason,"partial":partial,"strategy":pos.get("strategy"),
-                    "runner":bool(pos.get("runner")),"entry_metrics":pos.get("entry_metrics",{})
+                    "runner":bool(pos.get("runner")),"entry_metrics":pos.get("entry_metrics",{}),
+                    "risk_score":pos.get("risk_score"),"momentum_score":pos.get("momentum_score"),
+                    "simulated_slippage_pct":pos.get("sim_slippage_pct")
                 })
                 if partial:
                     pos["quantity"] -= quantity
@@ -1110,8 +1192,8 @@ def scan_once():
                     pos["runner_peak_price"] = price
                     add_event(f"runner partial sell {pos['symbol']} | 50% | {pnl_pct*100:+.1f}%")
                 else:
-                    if reason == "stop loss -15%":
-                        state.setdefault("stopped_tokens", {})[address] = today
+                    if reason.startswith("stop loss"):
+                        state.setdefault("stopped_tokens", {})[address] = time.time() + TOKEN_COOLDOWN_SECONDS
                     del state["positions"][address]
                     add_event(f"sell {pos['symbol']} | {reason} | {pnl_pct*100:+.1f}% | {realized:+.2f} EUR")
             if address in state["positions"] and state["positions"][address].get("runner_half_sold"):
@@ -1149,7 +1231,8 @@ def scan_once():
         if not paused and not state.get("session_halted") and len(state["positions"]) < MAX_POSITIONS and state["daily_count"] < MAX_TRADES_PER_DAY:
             for candidate in safe_candidates:
                 address = (candidate.get("baseToken") or {}).get("address")
-                if not address or address in state["positions"] or address in state.get("stopped_tokens", {}):
+                is_blocked, _ = token_entry_blocked(address)
+                if not address or address in state["positions"] or is_blocked:
                     continue
                 equity = float(state["cash"]) + sum(float(p.get("quantity",0))*float(p.get("last_price",p.get("entry_price",0))) for p in state["positions"].values())
                 day_pnl = daily_pnl_unlocked()
@@ -1175,6 +1258,7 @@ def scan_once():
                     "opened_at":datetime.now(timezone.utc).isoformat(),"opened_ts":time.time(),
                     "strategy":"runner" if runner else "scalp","runner":runner,"runner_half_sold":False,
                     "runner_peak_price":float(candidate["priceUsd"]),"score":candidate.get("_rank_score",0),"momentum_score":candidate.get("_momentum_score",0),
+                    "risk_score":candidate.get("_risk_score",0),
                     "liquidity_usd":float((candidate.get("liquidity") or {}).get("usd") or 0),
                     "market_cap":float(candidate.get("marketCap") or candidate.get("fdv") or 0),
                     "sim_slippage_pct":SIM_SLIPPAGE_PCT*100,
