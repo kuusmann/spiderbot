@@ -694,7 +694,20 @@ def discover_candidates():
                 candidates.extend(data)
         except Exception as exc:
             add_event(f"dex batch error: {str(exc)[:120]}")
+    best_pairs = {}
+    for pair in candidates:
+        address = (pair.get("baseToken") or {}).get("address")
+        if not address:
+            continue
+        def pair_quality(item):
+            liquidity = float((item.get("liquidity") or {}).get("usd") or 0)
+            volume = float((item.get("volume") or {}).get("h24") or 0)
+            return liquidity, volume
+        if address not in best_pairs or pair_quality(pair) > pair_quality(best_pairs[address]):
+            best_pairs[address] = pair
+    candidates = list(best_pairs.values())
     discovery_stats["dex_pairs"] = len(candidates)
+    discovery_stats["unique_tokens"] = len(candidates)
     return candidates
 
 def pair_age_hours(pair):
@@ -1418,6 +1431,19 @@ async def scanner_loop(app):
             last_error = str(e)
             add_event(f"skanni viga: {e}")
             log.exception("Scanner failed")
+        if TELEGRAM_ALERTS_ENABLED and ALLOWED_USER_ID:
+            with alert_lock:
+                queued = list(pending_alerts)
+                pending_alerts.clear()
+            for alert in queued:
+                try:
+                    await app.bot.send_message(chat_id=int(ALLOWED_USER_ID), text=alert["message"])
+                except Exception as alert_error:
+                    log.warning("Telegram alert delivery failed: %s", str(alert_error)[:160])
+                    with alert_lock:
+                        pending_alerts.insert(0, alert)
+                        del pending_alerts[30:]
+                    break
         await asyncio.sleep(SCAN_SECONDS)
 
 async def post_init(app):
@@ -1548,7 +1574,17 @@ def auth_required():
     return Response("Autentimine vajalik", 401, {"WWW-Authenticate": 'Basic realm="janobot"'})
 @web.get("/health")
 def health():
-    return jsonify({"ok": True, "service": "spiderbot"})
+    stale = False
+    if last_scan != "not yet":
+        try:
+            stale = time.time() - datetime.fromisoformat(last_scan.replace("Z", "+00:00")).timestamp() > 180
+        except Exception:
+            stale = True
+    healthy = bool(persistence_ok and not stale and not last_error)
+    # Keep the hosting health-check response HTTP 200; expose degraded readiness in JSON.
+    return jsonify({"ok": healthy, "service": "spiderbot", "paper_only": True,
+                    "persistence_ok": persistence_ok, "scanner_stale": stale,
+                    "last_scan": last_scan, "last_error": last_error}), 200
 @web.get("/")
 def dashboard():
     if not check_auth(request.authorization): return auth_required()
@@ -1607,6 +1643,23 @@ def chart_data(pool_address):
             return jsonify({"candles":stale["candles"],"source":"GeckoTerminal","cached":True,
                             "stale":True,"warning":str(exc)[:140],"updated":stale["updated"]})
         return jsonify({"error":str(exc)[:180],"candles":[],"source":"GeckoTerminal"}), 502
+
+@web.get("/api/trades.csv")
+def trades_csv():
+    if not check_auth(request.authorization):
+        return auth_required()
+    with state_lock:
+        rows = list(state.get("trades", []))
+    output = io.StringIO()
+    fields = ("closed_at", "symbol", "address", "entry", "exit", "pnl", "pnl_pct",
+              "reason", "strategy", "partial", "runner", "risk_score", "momentum_score",
+              "simulated_slippage_pct")
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return Response(output.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=spiderbot-paper-trades.csv"})
 
 @web.get("/api/live")
 def live_data():
