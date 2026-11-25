@@ -324,11 +324,16 @@ def risk_assessment(pair, report):
             "factors": factors}
 
 def risk_entry_allowed(risk):
-    """Reject new paper entries when supplementary risk is high or malformed."""
-    try:
-        return float((risk or {}).get("score") or 0) < MAX_ENTRY_RISK_SCORE
-    except (TypeError, ValueError):
+    """Fail closed if supplementary risk data is missing, malformed, or outside 0–100."""
+    if not isinstance(risk, dict) or risk.get("score") is None:
         return False
+    try:
+        score = float(risk["score"])
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if not 0 <= score <= 100:
+        return False
+    return score < MAX_ENTRY_RISK_SCORE
 
 def strict_safety_check(pair, report):
     """Paper-entry safety: reject confirmed hazards, but do not require unavailable analytics."""
@@ -1697,7 +1702,7 @@ def live_data():
             "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],"wallet_performance":wallet_performance(),"strategy_performance":strategy_performance(),
             "candidates":last_candidates,"market_regime":dict(market_regime),"closed_trade_performance":closed_trade_performance(),"forward_signal_performance":forward_signal_performance(),"wallet_tracker":wallet_payload,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"max_portfolio_exposure_pct":MAX_PORTFOLIO_EXPOSURE_PCT*100,"max_buys_per_scan":MAX_BUYS_PER_SCAN,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_volume_24h_usd":MIN_VOLUME_24H_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"large_cap_min_mcap":LARGE_CAP_MIN_MCAP,"large_cap_min_liquidity":LARGE_CAP_MIN_LIQUIDITY,"large_cap_min_volume24":LARGE_CAP_MIN_VOLUME24,"min_volume_5m_usd":MIN_VOLUME_5M_USD,"min_dip_pct":MIN_DIP_PCT,"max_dip_pct":MAX_DIP_PCT,"min_bounce_pct":MIN_BOUNCE_PCT,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
+            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"max_entry_risk_score":MAX_ENTRY_RISK_SCORE,"max_portfolio_exposure_pct":MAX_PORTFOLIO_EXPOSURE_PCT*100,"max_buys_per_scan":MAX_BUYS_PER_SCAN,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_volume_24h_usd":MIN_VOLUME_24H_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"large_cap_min_mcap":LARGE_CAP_MIN_MCAP,"large_cap_min_liquidity":LARGE_CAP_MIN_LIQUIDITY,"large_cap_min_volume24":LARGE_CAP_MIN_VOLUME24,"min_volume_5m_usd":MIN_VOLUME_5M_USD,"min_dip_pct":MIN_DIP_PCT,"max_dip_pct":MAX_DIP_PCT,"min_bounce_pct":MIN_BOUNCE_PCT,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
     return jsonify(payload)
 
 def run_web():
