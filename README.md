@@ -15,7 +15,7 @@ Solana market scanner and paper-trading bot with Telegram controls and a protect
 
 - Solana market discovery from public DexScreener and GeckoTerminal feeds.
 - Separate small/base-cap and large-cap screening lanes.
-- Momentum score (0–100), market regime estimate, RugCheck hard gates, and supplementary risk score.
+- Momentum score (0–100), market regime estimate, RugCheck hard gates, and supplementary risk score. A supplementary risk score of 60/100 or above blocks new paper entries.
 - Risk-adjusted simulated position sizing, scalp/runner exits, profit protection, and stop-loss cooldown.
 - Optional manually configured token blacklist via `TOKEN_BLACKLIST` (comma-separated mint addresses).
 - Wallet discovery and swap signals when Birdeye and Helius API keys are configured. Wallet signals can only create paper trades.
