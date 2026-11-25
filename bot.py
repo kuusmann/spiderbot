@@ -722,10 +722,66 @@ def momentum_score(pair):
     features=pair.get("_momentum") or {}; bounce=float(features.get("bounce_2m_pct") or 0); age=float(features.get("pool_age_minutes") or 0)
     score=min(25,max(0,(ratio-1)*12))+min(20,vol5/2500)+min(15,liq/25000)+min(15,max(0,bounce)*3)+min(10,max(0,ch5)*1.5)+(10 if 5<=age<=240 else 5 if age<=720 else 0)+(5 if ch1>=0 else 0)
     return round(min(100,max(0,score)),1)
-def backtest_summary():
-    with state_lock: trades=list(state.get("trades",[])); signals=list(state.get("signal_log",[]))
-    wins=[float(t.get("pnl") or 0) for t in trades if float(t.get("pnl") or 0)>0]; losses=[float(t.get("pnl") or 0) for t in trades if float(t.get("pnl") or 0)<=0]
-    return {"sample_size":len(trades),"win_rate_pct":round(100*len(wins)/len(trades),1) if trades else 0,"net_pnl_eur":round(sum(float(t.get("pnl") or 0) for t in trades),2),"profit_factor":round(sum(wins)/abs(sum(losses)),2) if losses and sum(losses)!=0 else None,"signals_logged":len(signals),"method":"realized paper trades; not historical replay"}
+def evaluate_signal_forward(signal, history, horizon_seconds, now=None):
+    """Evaluate a signal only when an actual later market observation is available."""
+    try:
+        started = float(signal.get("signal_ts") or 0)
+        entry = float(signal.get("price_usd") or 0)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if started <= 0 or entry <= 0:
+        return None
+    now = time.time() if now is None else float(now)
+    target_time = started + float(horizon_seconds)
+    if now < target_time:
+        return None
+    future = [row for row in history if float(row.get("t", 0)) >= target_time and float(row.get("p", 0)) > 0]
+    if not future:
+        return None
+    observation = min(future, key=lambda row: float(row.get("t", 0)))
+    return round((float(observation["p"]) / entry - 1) * 100, 3)
+
+def update_forward_signal_outcomes():
+    with state_lock:
+        signals = state.setdefault("signal_log", [])
+        histories = state.setdefault("price_history", {})
+        for signal in signals:
+            history = histories.get(signal.get("address"), [])
+            for horizon, field in ((900, "return_15m_pct"), (3600, "return_60m_pct")):
+                if field not in signal:
+                    result = evaluate_signal_forward(signal, history, horizon)
+                    if result is not None:
+                        signal[field] = result
+
+def forward_signal_performance():
+    with state_lock:
+        signals = list(state.get("signal_log", []))
+    summary = {}
+    for field in ("return_15m_pct", "return_60m_pct"):
+        values = [float(row[field]) for row in signals if row.get(field) is not None]
+        summary[field] = {
+            "samples": len(values),
+            "win_rate_pct": round(100 * sum(value > 0 for value in values) / len(values), 1) if values else None,
+            "average_return_pct": round(sum(values) / len(values), 3) if values else None,
+        }
+    summary["method"] = "forward outcomes from recorded scanner signals; not a historical backtest"
+    return summary
+
+def closed_trade_performance():
+    with state_lock:
+        trades = list(state.get("trades", []))
+    pnls = [float(row.get("pnl") or 0) for row in trades]
+    wins = [value for value in pnls if value > 0]
+    losses = [value for value in pnls if value <= 0]
+    gross_loss = abs(sum(losses))
+    return {
+        "sample_size": len(pnls),
+        "win_rate_pct": round(100 * len(wins) / len(pnls), 1) if pnls else None,
+        "net_pnl_eur": round(sum(pnls), 2),
+        "profit_factor": round(sum(wins) / gross_loss, 2) if gross_loss else ("no_losses" if wins else None),
+        "average_win_eur": round(sum(wins) / len(wins), 2) if wins else None,
+        "average_loss_eur": round(sum(losses) / len(losses), 2) if losses else None,
+    }
 
 def token_entry_blocked(address):
     if not address:
@@ -1075,6 +1131,7 @@ def scan_once():
             blockers = candidate.get("_entry_blockers") or ([] if address in safe_addresses else ["not qualified"])
         signal_rows.append({
             "time": datetime.now(timezone.utc).isoformat(),
+            "signal_ts": now,
             "address": address,
             "symbol": (candidate.get("baseToken") or {}).get("symbol","?"),
             "price_usd": float(candidate.get("priceUsd") or 0),
@@ -1091,6 +1148,9 @@ def scan_once():
             "price_gain_10m_pct": (candidate.get("_momentum") or {}).get("price_gain_10m_pct"),
             "breakout": True,
             "rank_score": candidate.get("_rank_score"),
+            "momentum_score": candidate.get("_momentum_score"),
+            "risk_score": candidate.get("_risk_score"),
+            "market_lane": candidate.get("_market_lane"),
             "qualified": address in safe_addresses,
             "blockers": blockers,
             "outcome": "already-open" if address in state.get("positions",{}) else ("qualified" if address in safe_addresses else "blocked")
@@ -1098,6 +1158,7 @@ def scan_once():
     with state_lock:
         state.setdefault("signal_log", []).extend(signal_rows)
         del state["signal_log"][:-1500]
+    update_forward_signal_outcomes()
     buy_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("buys") or 0) for p in local_candidates)
     sell_total = sum(int(((p.get("txns") or {}).get("m5") or {}).get("sells") or 0) for p in local_candidates)
     update_agent("taju","active" if local_candidates else "waiting","Hindab ostu- ja müügisurvet",
@@ -1238,7 +1299,9 @@ def scan_once():
                 day_pnl = daily_pnl_unlocked()
                 size = dynamic_trade_size(equity, day_pnl)
                 score_scale = max(0.50, min(1.25, float(candidate.get("_momentum_score") or 0) / 80.0))
-                size = round(size * score_scale, 2)
+                risk_scale = max(0.50, 1.0 - min(80.0, float(candidate.get("_risk_score") or 0)) / 160.0)
+                regime_scale = 0.75 if market_regime.get("label") == "BEAR" else 1.0
+                size = round(size * score_scale * risk_scale * regime_scale, 2)
                 if size <= 1 or size + SIM_TX_FEE_EUR > float(state["cash"]):
                     continue
                 # Paper-only execution uses the observed DEX price plus simulated slippage;
@@ -1328,6 +1391,9 @@ def scan_once():
             "volume_multiple":(p.get("_momentum") or {}).get("volume_multiple"),
             "rank_score":p.get("_rank_score"),
             "momentum_score":p.get("_momentum_score"),
+            "risk_score":p.get("_risk_score"),
+            "risk_level":(p.get("_risk") or {}).get("level"),
+            "risk_factors":(p.get("_risk") or {}).get("factors",[]),
             "sources":p.get("_discovery_sources",[]),
             "news":p.get("_news_matches",[])
         } for p in shown[:20]]
@@ -1557,7 +1623,7 @@ def live_data():
         payload = {"cash":state["cash"],"positions_value":pos_value,"total":state["cash"]+pos_value,
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
             "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],"wallet_performance":wallet_performance(),"strategy_performance":strategy_performance(),
-            "candidates":last_candidates,"market_regime":dict(market_regime),"backtest":backtest_summary(),"wallet_tracker":wallet_payload,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
+            "candidates":last_candidates,"market_regime":dict(market_regime),"closed_trade_performance":closed_trade_performance(),"forward_signal_performance":forward_signal_performance(),"wallet_tracker":wallet_payload,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
             "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"max_portfolio_exposure_pct":MAX_PORTFOLIO_EXPOSURE_PCT*100,"max_buys_per_scan":MAX_BUYS_PER_SCAN,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_volume_24h_usd":MIN_VOLUME_24H_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"large_cap_min_mcap":LARGE_CAP_MIN_MCAP,"large_cap_min_liquidity":LARGE_CAP_MIN_LIQUIDITY,"large_cap_min_volume24":LARGE_CAP_MIN_VOLUME24,"min_volume_5m_usd":MIN_VOLUME_5M_USD,"min_dip_pct":MIN_DIP_PCT,"max_dip_pct":MAX_DIP_PCT,"min_bounce_pct":MIN_BOUNCE_PCT,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
     return jsonify(payload)
