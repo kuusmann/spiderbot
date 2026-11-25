@@ -643,6 +643,31 @@ def pair_age_hours(pair):
     if not created: return 999999
     return max(0, (time.time()*1000 - float(created))/3600000)
 
+
+# === Enhanced paper-only analytics ===
+market_regime = {"label":"UNKNOWN","score":50,"updated":None,"details":{}}
+def market_regime_from_pairs(pairs):
+    valid=[]
+    for p in pairs:
+        try:
+            liq=float((p.get("liquidity") or {}).get("usd") or 0); vol=float((p.get("volume") or {}).get("h24") or 0); ch=float((p.get("priceChange") or {}).get("h1") or 0)
+            if liq>=10000 and vol>=50000: valid.append(ch)
+        except (TypeError,ValueError): pass
+    if not valid: return {"label":"UNKNOWN","score":50,"breadth":0,"median_change":0}
+    breadth=sum(x>0 for x in valid)/len(valid); med=sorted(valid)[len(valid)//2]
+    score=max(0,min(100,round(50+35*(breadth-.5)+2*max(-10,min(10,med)))))
+    return {"label":"BULL" if score>=65 else ("BEAR" if score<=35 else "NEUTRAL"),"score":score,"breadth":round(breadth,3),"median_change":round(med,2)}
+def momentum_score(pair):
+    tx=(pair.get("txns") or {}).get("m5") or {}; buys=int(tx.get("buys") or 0); sells=int(tx.get("sells") or 0); ratio=buys/max(sells,1)
+    vol5=float((pair.get("volume") or {}).get("m5") or 0); liq=float((pair.get("liquidity") or {}).get("usd") or 0); ch5=float((pair.get("priceChange") or {}).get("m5") or 0); ch1=float((pair.get("priceChange") or {}).get("h1") or 0)
+    features=pair.get("_momentum") or {}; bounce=float(features.get("bounce_2m_pct") or 0); age=float(features.get("pool_age_minutes") or 0)
+    score=min(25,max(0,(ratio-1)*12))+min(20,vol5/2500)+min(15,liq/25000)+min(15,max(0,bounce)*3)+min(10,max(0,ch5)*1.5)+(10 if 5<=age<=240 else 5 if age<=720 else 0)+(5 if ch1>=0 else 0)
+    return round(min(100,max(0,score)),1)
+def backtest_summary():
+    with state_lock: trades=list(state.get("trades",[])); signals=list(state.get("signal_log",[]))
+    wins=[float(t.get("pnl") or 0) for t in trades if float(t.get("pnl") or 0)>0]; losses=[float(t.get("pnl") or 0) for t in trades if float(t.get("pnl") or 0)<=0]
+    return {"sample_size":len(trades),"win_rate_pct":round(100*len(wins)/len(trades),1) if trades else 0,"net_pnl_eur":round(sum(float(t.get("pnl") or 0) for t in trades),2),"profit_factor":round(sum(wins)/abs(sum(losses)),2) if losses and sum(losses)!=0 else None,"signals_logged":len(signals),"method":"realized paper trades; not historical replay"}
+
 def score_candidate(pair):
     tx = (pair.get("txns") or {}).get("m5") or {}
     buys = int(tx.get("buys") or 0)
@@ -651,7 +676,7 @@ def score_candidate(pair):
 
 def dynamic_trade_size(equity, daily_pnl):
     """Compound measured paper position sizes with a strict total-exposure ceiling."""
-    fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)
+    fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)\n    fraction *= 0.75 if market_regime.get("label") == "BEAR" else 1.0
     invested = sum(float(p.get("cost", 0)) for p in state.get("positions", {}).values())
     exposure_room = max(0.0, float(equity) * MAX_PORTFOLIO_EXPOSURE_PCT - invested)
     return round(max(0.0, min(float(equity) * fraction,
@@ -796,7 +821,7 @@ def scan_once():
     update_agent("uljas","working","Otsib Solana migrated/trending pools","Laeb uusi ja trending basseine")
     pairs = discover_candidates()
     now = time.time()
-    market_features = update_market_snapshots(pairs)
+    market_features = update_market_snapshots(pairs)\n    market_regime.update(market_regime_from_pairs(pairs)); market_regime["updated"]=datetime.now(timezone.utc).isoformat()
     update_agent("uljas","active","Skaneeris turgu",f"{len(pairs)} paari; {len(discovery_cache.get('addresses',[]))} tokeniaadressi",checks=len(pairs))
 
     local_candidates = []
@@ -917,11 +942,11 @@ def scan_once():
         trade_ratio = int(tx5.get("buys") or 0) / max(int(tx5.get("sells") or 0), 1)
         volume_factor = min(5.0, float((candidate.get("volume") or {}).get("m5") or 0) / 10000.0)
         recovery_factor = max(0.0, float((candidate.get("_momentum") or {}).get("bounce_2m_pct") or 0))
-        candidate["_rank_score"] = round(trade_ratio * (1.0 + volume_factor) * (1.0 + min(recovery_factor, 5.0) / 10.0), 4)
+        candidate["_rank_score"] = round(trade_ratio * (1.0 + volume_factor) * (1.0 + min(recovery_factor, 5.0) / 10.0), 4)\n        candidate["_momentum_score"] = momentum_score(candidate)
         candidate["_rugcheck_report"] = report
         safe_candidates.append(candidate)
 
-    safe_candidates.sort(key=lambda p: float(p.get("_rank_score") or 0), reverse=True)
+    safe_candidates.sort(key=lambda p: (float(p.get("_momentum_score") or 0),float(p.get("_rank_score") or 0)), reverse=True)
     safe_addresses = {(p.get("baseToken") or {}).get("address") for p in safe_candidates}
     checked_addresses = {(p.get("baseToken") or {}).get("address") for p in local_candidates[:20]}
     signal_rows = []
@@ -1104,7 +1129,7 @@ def scan_once():
                     continue
                 equity = float(state["cash"]) + sum(float(p.get("quantity",0))*float(p.get("last_price",p.get("entry_price",0))) for p in state["positions"].values())
                 day_pnl = daily_pnl_unlocked()
-                size = dynamic_trade_size(equity, day_pnl)
+                size = dynamic_trade_size(equity, day_pnl)\n                size=round(size*max(0.5,min(1.25,float(candidate.get("_momentum_score") or 0)/80.0)),2)
                 if size <= 1 or size + SIM_TX_FEE_EUR > float(state["cash"]):
                     continue
                 # Paper-only execution uses the observed DEX price plus simulated slippage;
@@ -1123,12 +1148,12 @@ def scan_once():
                     "peak_price":float(candidate["priceUsd"]),"quantity":size/execution_price,"cost":size+SIM_TX_FEE_EUR,
                     "opened_at":datetime.now(timezone.utc).isoformat(),"opened_ts":time.time(),
                     "strategy":"runner" if runner else "scalp","runner":runner,"runner_half_sold":False,
-                    "runner_peak_price":float(candidate["priceUsd"]),"score":candidate.get("_rank_score",0),
+                    "runner_peak_price":float(candidate["priceUsd"]),"score":candidate.get("_rank_score",0),"momentum_score":candidate.get("_momentum_score",0),
                     "liquidity_usd":float((candidate.get("liquidity") or {}).get("usd") or 0),
                     "market_cap":float(candidate.get("marketCap") or candidate.get("fdv") or 0),
                     "sim_slippage_pct":SIM_SLIPPAGE_PCT*100,
                     "entry_metrics":{
-                        "rank_score":candidate.get("_rank_score"),
+                        "rank_score":candidate.get("_rank_score"),\n                        "momentum_score":candidate.get("_momentum_score"),
                         "volume_multiple":(candidate.get("_momentum") or {}).get("volume_multiple"),
                         "unique_buyers_5m":candidate.get("_unique_buyers_5m"),
                         "unique_sellers_5m":candidate.get("_unique_sellers_5m"),
@@ -1190,7 +1215,7 @@ def scan_once():
             "setup":p.get("_setup","momentum"),
             "buy_sell_ratio":p.get("_buy_sell_ratio",0),
             "volume_multiple":(p.get("_momentum") or {}).get("volume_multiple"),
-            "rank_score":p.get("_rank_score"),
+            "rank_score":p.get("_rank_score"),\n            "momentum_score":p.get("_momentum_score"),
             "sources":p.get("_discovery_sources",[]),
             "news":p.get("_news_matches",[])
         } for p in shown[:20]]
