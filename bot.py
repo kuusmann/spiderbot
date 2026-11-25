@@ -1075,7 +1075,7 @@ def scan_once():
 
         apply_wallet_copy_signals(safe_candidates, pairs)
 
-        bought_symbol = None
+        bought_symbols = []
         if not paused and not state.get("session_halted") and len(state["positions"]) < MAX_POSITIONS and state["daily_count"] < MAX_TRADES_PER_DAY:
             for candidate in safe_candidates:
                 address = (candidate.get("baseToken") or {}).get("address")
@@ -1119,15 +1119,16 @@ def scan_once():
                     }
                 }
                 state["daily_count"] += 1
-                bought_symbol = symbol
+                bought_symbols.append(symbol)
                 for signal in reversed(state.get("signal_log", [])):
                     if signal.get("address") == address and signal.get("outcome") == "qualified":
                         signal["outcome"] = "entered"
                         signal["entry_strategy"] = "RUNNER" if runner else "SCALP"
                         signal["entry_size_eur"] = size
                         break
-                add_event(f"paper buy {symbol} | EUR {size:.2f} | {'RUNNER' if runner else 'SCALP'} | rank {candidate.get('_rank_score')}")
-                break
+                add_event(f"paper buy {symbol} | EUR {size:.2f} | {candidate.get('_setup')} | {'RUNNER' if runner else 'SCALP'} | rank {candidate.get('_rank_score')}")
+                if len(bought_symbols) >= 2 or len(state["positions"]) >= MAX_POSITIONS or state["daily_count"] >= MAX_TRADES_PER_DAY:
+                    break
 
         try:
             save_state()
@@ -1160,7 +1161,9 @@ def scan_once():
             "marketCap":p.get("marketCap") or p.get("fdv") or 0,
             "history":state.setdefault("price_history",{}).setdefault((p.get("baseToken") or {}).get("address",""),[])[-60:],
             "address":(p.get("baseToken") or {}).get("address",""),
+            "pair_address":p.get("pairAddress",""),
             "url":p.get("url",""),
+            "entry_setup":p.get("_setup",""),
             "rugcheck":p.get("_rugcheck",{"status":"not_checked"}),
             "strategy_score":p.get("_score",0),
             "setup":p.get("_setup","momentum"),
@@ -1173,10 +1176,11 @@ def scan_once():
         last_pair_count, last_candidate_count = len(pairs), len(safe_candidates)
         last_scan = datetime.now(timezone.utc).isoformat()
         last_error = ""
-        jano_verdict = "BUY" if bought_symbol else ("WAIT" if not state.get("session_halted") else "HALT")
-        update_agent("jano","active" if bought_symbol else "waiting","JANO controls the paper session",
-                     f"{jano_verdict}: {bought_symbol or state.get('session_halt_reason') or 'no fully-qualified entry'}; open {len(state['positions'])}/{MAX_POSITIONS}; day PnL {daily_pnl_unlocked():+.2f} EUR",
-                     symbol=bought_symbol,checks=len(pairs),decision=jano_verdict)
+        bought_label = ", ".join(bought_symbols)
+        jano_verdict = "BUY" if bought_symbols else ("WAIT" if not state.get("session_halted") else "HALT")
+        update_agent("jano","active" if bought_symbols else "waiting","JANO controls the paper session",
+                     f"{jano_verdict}: {bought_label or state.get('session_halt_reason') or 'no safe dip/recovery entry'}; open {len(state['positions'])}/{MAX_POSITIONS}; day PnL {daily_pnl_unlocked():+.2f} EUR",
+                     symbol=bought_label or None,checks=len(pairs),decision=jano_verdict)
     rugcheck_stats["status"] = "connected" if rugcheck_stats["checked"] else ("unavailable" if rugcheck_stats["errors"] else "checking")
     return len(pairs), len(safe_candidates)
 
