@@ -63,6 +63,11 @@ class SpiderBotRuleTests(unittest.TestCase):
         self.assertTrue(risk["factors"])
         self.assertIn(risk["level"], {"LOW", "MEDIUM", "HIGH"})
 
+    def test_entry_risk_threshold_blocks_high_risk(self):
+        self.assertTrue(bot.risk_entry_allowed({"score": 59.9}))
+        self.assertFalse(bot.risk_entry_allowed({"score": 60.0}))
+        self.assertFalse(bot.risk_entry_allowed({"score": 75}))
+
     def test_hard_stop_loss_exit(self):
         position = {"entry_price": 100, "peak_price": 100, "runner": False}
         reason, partial = bot.position_exit_decision(position, {}, 87, 60)
