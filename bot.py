@@ -1,4 +1,4 @@
-import os, json, time, logging, asyncio, threading, copy, random, xml.etree.ElementTree as ET
+import os, json, time, logging, asyncio, threading, copy, random, re, xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from datetime import datetime, timezone
@@ -15,31 +15,37 @@ ALLOWED_USER_ID = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 STATE_FILE = Path(os.environ.get("STATE_FILE", "/var/data/state.json"))
 STARTING_BALANCE = 1000.0
-POSITION_RISK_PCT = 0.035
-MAX_POSITIONS = 10
-MAX_TRADES_PER_DAY = 200
-SCALP_TAKE_PROFIT = 0.30
-SCALP_STOP_LOSS = -0.15
-TIME_STOP_SECONDS = 240
+POSITION_RISK_PCT = 0.06
+MAX_POSITIONS = 8
+MAX_TRADES_PER_DAY = 100
+SCALP_TAKE_PROFIT = 0.25
+SCALP_STOP_LOSS = -0.12
+TIME_STOP_SECONDS = 3600
 FLAT_BAND_PCT = 0.03
-RUNNER_EVERY_NTH_ENTRY = 3
-RUNNER_HALF_TP = 0.50
-RUNNER_TRAIL_GIVEBACK = 0.25
-DAILY_STOP_LOSS_EUR = -200.0
+RUNNER_EVERY_NTH_ENTRY = 2
+RUNNER_HALF_TP = 0.40
+RUNNER_TRAIL_GIVEBACK = 0.20
+DAILY_STOP_LOSS_EUR = -60.0
 REDUCE_SIZE_AT_PROFIT_EUR = 500.0
-DAILY_TARGET_EUR = 2000.0
+DAILY_TARGET_EUR = 150.0
 SIM_SLIPPAGE_PCT = 0.035
 SIM_LATENCY_MS = 300
 SIM_FAILED_TX_RATE = 0.12
 SIM_TX_FEE_EUR = 0.10
 SIM_FAILED_TX_FEE_EUR = 0.05
-MIN_LIQUIDITY_USD = 8000.0
-MIN_MARKET_CAP_USD = 20000.0
-MAX_MARKET_CAP_USD = 20000000.0
-MIN_POOL_AGE_MINUTES = 2.0
-MAX_POOL_AGE_MINUTES = 1440.0
-MIN_VOLUME_SPIKE_MULTIPLE = 2.0
-MIN_BUYER_SELLER_RATIO = 0.7
+MIN_LIQUIDITY_USD = 75000.0
+MIN_MARKET_CAP_USD = 5000000.0
+MAX_MARKET_CAP_USD = 2000000000.0
+MIN_POOL_AGE_MINUTES = 30.0
+MAX_POOL_AGE_MINUTES = 43200.0
+MIN_VOLUME_SPIKE_MULTIPLE = 1.0
+MIN_BUYER_SELLER_RATIO = 1.0
+MIN_VOLUME_24H_USD = 250000.0
+MIN_VOLUME_5M_USD = 1000.0
+MIN_BUYS_5M = 3
+MIN_DIP_PCT = 1.0
+MAX_DIP_PCT = 8.0
+MIN_BOUNCE_PCT = 0.35
 MAX_TOP10_HOLDERS_PCT = 30.0
 MAX_DEV_HOLDER_PCT = 5.0
 MIN_LP_LOCKED_PCT = 80.0
@@ -215,9 +221,14 @@ def update_market_snapshots(pairs):
             ph = prices.setdefault(address, [])
             prior = [x for x in ph if now - float(x.get("t", 0)) <= 3600]
             old_5m = [float(x["p"]) for x in prior if now - float(x["t"]) <= 300]
+            old_2m = [float(x["p"]) for x in prior if now - float(x["t"]) <= 120]
             old_10m = [x for x in prior if 570 <= now - float(x["t"]) <= 720]
             old_prices = [float(x["p"]) for x in prior]
             observed_high = max(old_prices + [price])
+            high_5m = max(old_5m + [price])
+            low_2m = min(old_2m + [price])
+            drawdown_5m = (price / high_5m - 1) * 100 if high_5m > 0 else 0.0
+            bounce_2m = (price / low_2m - 1) * 100 if low_2m > 0 else 0.0
             gain_10m = None
             if old_10m:
                 oldest = min(old_10m, key=lambda x: float(x["t"]))
@@ -232,6 +243,8 @@ def update_market_snapshots(pairs):
                 "observed_high": observed_high,
                 "above_60pct_high": price >= observed_high * 0.60,
                 "gain_10m_pct": gain_10m,
+                "drawdown_5m_pct": drawdown_5m,
+                "bounce_2m_pct": bounce_2m,
                 "volume_multiple": multiple
             }
             ph.append({"t": now, "p": price})
@@ -578,6 +591,7 @@ def discover_candidates():
         # GeckoTerminal supplies actual new Solana pools and a separate trending-pool feed.
         pull("new_pools", "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?include=base_token", _gecko_solana_addresses)
         pull("trending_pools", "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?duration=5m&include=base_token", _gecko_solana_addresses)
+        pull("top_volume_pools", "https://api.geckoterminal.com/api/v2/networks/solana/pools?sort=h24_volume_usd_desc&page=1&include=base_token", _gecko_solana_addresses)
         merged = {}
         # Put the highest-volume established Solana pools first so they survive the scan cap.
         source_order = ("top_volume_pools", "trending_pools", "new_pools", "profiles",
@@ -626,8 +640,12 @@ def score_candidate(pair):
     return buys / max(sells, 1), "momentum", buys / max(sells, 1)
 
 def dynamic_trade_size(equity, daily_pnl):
+    """Compound measured paper position sizes with a strict total-exposure ceiling."""
     fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)
-    return round(max(0.0, min(float(equity) * fraction, float(state.get("cash", 0)) - SIM_TX_FEE_EUR)), 2)
+    invested = sum(float(p.get("cost", 0)) for p in state.get("positions", {}).values())
+    exposure_room = max(0.0, float(equity) * 0.50 - invested)
+    return round(max(0.0, min(float(equity) * fraction,
+                              float(state.get("cash", 0)) - SIM_TX_FEE_EUR, exposure_room)), 2)
 
 def strategy_performance():
     """Closed paper-trade performance grouped by entry strategy."""
@@ -792,18 +810,24 @@ def scan_once():
             change5 = float((pair.get("priceChange") or {}).get("m5") or 0)
             if not address or price <= 0:
                 continue
-            # Broad-entry mode: scan a wider range, but retain minimum market depth and real activity.
-            # RugCheck + strict_safety_check below remain mandatory and fail closed.
+            # Prefer mature, liquid Solana markets with substantial 24h activity.
             if pool_age is None or not (MIN_POOL_AGE_MINUTES <= pool_age <= MAX_POOL_AGE_MINUTES):
                 continue
             if not (MIN_MARKET_CAP_USD <= market_cap <= MAX_MARKET_CAP_USD):
                 continue
             if liquidity < MIN_LIQUIDITY_USD:
                 continue
-            if volume5 < 250 or buys < 1 or buys / max(sells, 1) < MIN_BUYER_SELLER_RATIO:
+            volume24 = float((pair.get("volume") or {}).get("h24") or 0)
+            if volume24 < MIN_VOLUME_24H_USD or volume5 < MIN_VOLUME_5M_USD or buys < MIN_BUYS_5M:
                 continue
-            # Avoid obvious free-falls and already vertical candles, without requiring green 5m momentum.
-            if change5 < -8:
+            buy_sell_ratio = buys / max(sells, 1)
+            if buy_sell_ratio < MIN_BUYER_SELLER_RATIO:
+                continue
+            drawdown = float(features.get("drawdown_5m_pct") or 0)
+            bounce = float(features.get("bounce_2m_pct") or 0)
+            dip_rebound = (-MAX_DIP_PCT <= drawdown <= -MIN_DIP_PCT and bounce >= MIN_BOUNCE_PCT)
+            strong_continuation = change5 >= 1.0 and buy_sell_ratio >= 1.25
+            if not (dip_rebound or strong_continuation):
                 continue
             if gain_10m is not None and gain_10m > MAX_10M_PRICE_GAIN_PCT:
                 continue
@@ -814,10 +838,15 @@ def scan_once():
                 "volume_multiple": round(volume_multiple, 2),
                 "pool_age_minutes": round(pool_age, 1),
                 "observed_high": features.get("observed_high"),
+                "drawdown_5m_pct": round(drawdown, 2),
+                "bounce_2m_pct": round(bounce, 2),
                 "price_gain_10m_pct": round(float(gain_10m), 1) if gain_10m is not None else None
             }
             score, setup, ratio = score_candidate(pair)
-            pair["_score"], pair["_setup"], pair["_buy_sell_ratio"] = score, setup, ratio
+            pair["_score"] = score
+            pair["_setup"] = "dip-rebound" if dip_rebound else "momentum-continuation"
+            pair["_buy_sell_ratio"] = ratio
+            pair["_entry_volume24"] = volume24
             local_candidates.append(pair)
         except (TypeError, ValueError):
             continue
@@ -863,7 +892,11 @@ def scan_once():
         candidate["_unique_buyers_5m"] = buyers
         candidate["_unique_sellers_5m"] = sellers
         candidate["_unique_buyer_seller_ratio"] = buyers / max(sellers, 1) if buyers is not None and sellers is not None else 0
-        candidate["_rank_score"] = candidate["_unique_buyer_seller_ratio"] * float(candidate["_momentum"]["volume_multiple"])
+        tx5 = (candidate.get("txns") or {}).get("m5") or {}
+        trade_ratio = int(tx5.get("buys") or 0) / max(int(tx5.get("sells") or 0), 1)
+        volume_factor = min(5.0, float((candidate.get("volume") or {}).get("m5") or 0) / 10000.0)
+        recovery_factor = max(0.0, float((candidate.get("_momentum") or {}).get("bounce_2m_pct") or 0))
+        candidate["_rank_score"] = round(trade_ratio * (1.0 + volume_factor) * (1.0 + min(recovery_factor, 5.0) / 10.0), 4)
         candidate["_rugcheck_report"] = report
         safe_candidates.append(candidate)
 
