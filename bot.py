@@ -626,6 +626,24 @@ def dynamic_trade_size(equity, daily_pnl):
     fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)
     return round(max(0.0, min(float(equity) * fraction, float(state.get("cash", 0)) - SIM_TX_FEE_EUR)), 2)
 
+def strategy_performance():
+    """Closed paper-trade performance grouped by entry strategy."""
+    with state_lock:
+        trades = list(state.get("trades", []))
+    groups = {}
+    for trade in trades:
+        key = trade.get("strategy") or "unknown"
+        row = groups.setdefault(key, {"strategy":key,"trades":0,"wins":0,"pnl_eur":0.0})
+        row["trades"] += 1
+        row["wins"] += int(float(trade.get("pnl") or 0) > 0)
+        row["pnl_eur"] += float(trade.get("pnl") or 0)
+    result = []
+    for row in groups.values():
+        row["win_rate_pct"] = round(100*row["wins"]/row["trades"],1) if row["trades"] else 0
+        row["pnl_eur"] = round(row["pnl_eur"],2)
+        result.append(row)
+    return sorted(result,key=lambda x:x["pnl_eur"],reverse=True)
+
 def wallet_performance():
     """Performance from this bot's closed paper-copy trades; never treats Birdeye PnL as verified."""
     with state_lock:
@@ -1280,7 +1298,7 @@ def live_data():
         pos_value = sum(p["quantity"]*p.get("last_price",p["entry_price"]) for p in state["positions"].values())
         payload = {"cash":state["cash"],"positions_value":pos_value,"total":state["cash"]+pos_value,
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
-            "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],"wallet_performance":wallet_performance(),
+            "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],"wallet_performance":wallet_performance(),"strategy_performance":strategy_performance(),
             "candidates":last_candidates,"wallet_tracker":wallet_payload,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
             "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
