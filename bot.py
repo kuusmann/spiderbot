@@ -725,10 +725,10 @@ def market_regime_from_pairs(pairs):
             liq=float((p.get("liquidity") or {}).get("usd") or 0); vol=float((p.get("volume") or {}).get("h24") or 0); ch=float((p.get("priceChange") or {}).get("h1") or 0)
             if liq>=10000 and vol>=50000: valid.append(ch)
         except (TypeError,ValueError): pass
-    if not valid: return {"label":"UNKNOWN","score":50,"breadth":0,"median_change":0}
+    if not valid: return {"label":"UNKNOWN","score":50,"breadth":0,"median_change":0,"samples":0}
     breadth=sum(x>0 for x in valid)/len(valid); med=sorted(valid)[len(valid)//2]
     score=max(0,min(100,round(50+35*(breadth-.5)+2*max(-10,min(10,med)))))
-    return {"label":"BULL" if score>=65 else ("BEAR" if score<=35 else "NEUTRAL"),"score":score,"breadth":round(breadth,3),"median_change":round(med,2)}
+    return {"label":"BULL" if score>=65 else ("BEAR" if score<=35 else "NEUTRAL"),"score":score,"breadth":round(breadth,3),"median_change":round(med,2),"samples":len(valid)}
 def momentum_score(pair):
     tx=(pair.get("txns") or {}).get("m5") or {}; buys=int(tx.get("buys") or 0); sells=int(tx.get("sells") or 0); ratio=buys/max(sells,1)
     vol5=float((pair.get("volume") or {}).get("m5") or 0); liq=float((pair.get("liquidity") or {}).get("usd") or 0); ch5=float((pair.get("priceChange") or {}).get("m5") or 0); ch1=float((pair.get("priceChange") or {}).get("h1") or 0)
