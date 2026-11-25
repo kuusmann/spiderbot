@@ -16,7 +16,7 @@ DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 STATE_FILE = Path(os.environ.get("STATE_FILE", "/var/data/state.json"))
 STARTING_BALANCE = 1000.0
 POSITION_RISK_PCT = 0.06
-MAX_POSITIONS = 20
+MAX_POSITIONS = 3
 MAX_PORTFOLIO_EXPOSURE_PCT = 0.50
 MAX_SMALL_CAP_MCAP = 5000000.0
 LARGE_CAP_MIN_MCAP = 5000000.0
@@ -92,7 +92,7 @@ rugcheck_last_request = 0.0
 rugcheck_stats = {"checked": 0, "passed": 0, "blocked": 0, "errors": 0, "status": "starting"}
 chart_cache = {}
 chart_cache_lock = threading.RLock()
-CHART_CACHE_SECONDS = 600
+CHART_CACHE_SECONDS = 1800
 chart_request_lock = threading.RLock()
 chart_last_request = 0.0
 chart_rate_limit_until = 0.0
@@ -1645,7 +1645,7 @@ def chart_data(pool_address):
                                 "stale":True,"warning":"GeckoTerminal rate-limit cooldown","updated":stale["updated"]})
             return jsonify({"error":"GeckoTerminal rate-limit cooldown; retry in up to 15 minutes","candles":[]}), 503
         # Serialize chart fetches and add spacing to avoid bursts from several cards.
-        wait = 8.0 - (now - chart_last_request)
+        wait = 1.5 - (now - chart_last_request)
         if wait > 0:
             time.sleep(wait)
         chart_last_request = time.time()
