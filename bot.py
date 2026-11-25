@@ -35,14 +35,14 @@ SIM_LATENCY_MS = 300
 SIM_FAILED_TX_RATE = 0.12
 SIM_TX_FEE_EUR = 0.10
 SIM_FAILED_TX_FEE_EUR = 0.05
-MIN_LIQUIDITY_USD = 75000.0
-MIN_MARKET_CAP_USD = 5000000.0
+MIN_LIQUIDITY_USD = 150000.0
+MIN_MARKET_CAP_USD = 10000000.0
 MAX_MARKET_CAP_USD = 2000000000.0
-MIN_POOL_AGE_MINUTES = 30.0
+MIN_POOL_AGE_MINUTES = 1440.0
 MAX_POOL_AGE_MINUTES = 2628000.0
 MIN_VOLUME_SPIKE_MULTIPLE = 1.0
 MIN_BUYER_SELLER_RATIO = 1.0
-MIN_VOLUME_24H_USD = 250000.0
+MIN_VOLUME_24H_USD = 500000.0
 MIN_VOLUME_5M_USD = 1000.0
 MIN_BUYS_5M = 3
 MIN_DIP_PCT = 1.0
@@ -812,7 +812,10 @@ def scan_once():
             tx = (pair.get("txns") or {}).get("m5") or {}
             buys, sells = int(tx.get("buys") or 0), int(tx.get("sells") or 0)
             volume5 = float((pair.get("volume") or {}).get("m5") or 0)
-            change5 = float((pair.get("priceChange") or {}).get("m5") or 0)
+            price_changes = pair.get("priceChange") or {}
+            change5 = float(price_changes.get("m5") or 0)
+            change1h = float(price_changes.get("h1") or 0)
+            change24h = float(price_changes.get("h24") or 0)
             if not address or price <= 0:
                 continue
             # Prefer mature, liquid Solana markets with substantial 24h activity.
@@ -821,6 +824,8 @@ def scan_once():
             if not (MIN_MARKET_CAP_USD <= market_cap <= MAX_MARKET_CAP_USD):
                 continue
             if liquidity < MIN_LIQUIDITY_USD:
+                continue
+            if change24h <= 0 or change1h < -2.5:
                 continue
             volume24 = float((pair.get("volume") or {}).get("h24") or 0)
             if volume24 < MIN_VOLUME_24H_USD or volume5 < MIN_VOLUME_5M_USD or buys < MIN_BUYS_5M:
@@ -831,8 +836,7 @@ def scan_once():
             drawdown = float(features.get("drawdown_5m_pct") or 0)
             bounce = float(features.get("bounce_2m_pct") or 0)
             dip_rebound = (-MAX_DIP_PCT <= drawdown <= -MIN_DIP_PCT and bounce >= MIN_BOUNCE_PCT)
-            strong_continuation = change5 >= 1.0 and buy_sell_ratio >= 1.25
-            if not (dip_rebound or strong_continuation):
+            if not dip_rebound:
                 continue
             if gain_10m is not None and gain_10m > MAX_10M_PRICE_GAIN_PCT:
                 continue
@@ -852,6 +856,8 @@ def scan_once():
             pair["_setup"] = "dip-rebound" if dip_rebound else "momentum-continuation"
             pair["_buy_sell_ratio"] = ratio
             pair["_entry_volume24"] = volume24
+            pair["_entry_change1h"] = change1h
+            pair["_entry_change24h"] = change24h
             local_candidates.append(pair)
         except (TypeError, ValueError):
             continue
@@ -1406,7 +1412,7 @@ def live_data():
             "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],"wallet_performance":wallet_performance(),"strategy_performance":strategy_performance(),
             "candidates":last_candidates,"wallet_tracker":wallet_payload,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"max_portfolio_exposure_pct":MAX_PORTFOLIO_EXPOSURE_PCT*100,"max_buys_per_scan":MAX_BUYS_PER_SCAN,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_volume_24h_usd":MIN_VOLUME_24H_USD,"min_volume_5m_usd":MIN_VOLUME_5M_USD,"min_dip_pct":MIN_DIP_PCT,"max_dip_pct":MAX_DIP_PCT,"min_bounce_pct":MIN_BOUNCE_PCT,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
+            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"max_portfolio_exposure_pct":MAX_PORTFOLIO_EXPOSURE_PCT*100,"max_buys_per_scan":MAX_BUYS_PER_SCAN,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_volume_24h_usd":MIN_VOLUME_24H_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"min_volume_5m_usd":MIN_VOLUME_5M_USD,"min_dip_pct":MIN_DIP_PCT,"max_dip_pct":MAX_DIP_PCT,"min_bounce_pct":MIN_BOUNCE_PCT,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
     return jsonify(payload)
 
 def run_web():
