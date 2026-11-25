@@ -86,6 +86,7 @@ RUGCHECK_BASE = "https://api.rugcheck.xyz"
 RUGCHECK_CACHE_TTL = 900
 RUGCHECK_FAIL_TTL = 60
 RUGCHECK_MAX_SCORE = 40
+MAX_ENTRY_RISK_SCORE = 60.0
 rugcheck_cache = {}
 rugcheck_last_request = 0.0
 rugcheck_stats = {"checked": 0, "passed": 0, "blocked": 0, "errors": 0, "status": "starting"}
@@ -321,6 +322,13 @@ def risk_assessment(pair, report):
     risk = round(min(100.0, risk), 1)
     return {"score": risk, "level": "HIGH" if risk >= 60 else ("MEDIUM" if risk >= 30 else "LOW"),
             "factors": factors}
+
+def risk_entry_allowed(risk):
+    """Reject new paper entries when supplementary risk is high or malformed."""
+    try:
+        return float((risk or {}).get("score") or 0) < MAX_ENTRY_RISK_SCORE
+    except (TypeError, ValueError):
+        return False
 
 def strict_safety_check(pair, report):
     """Paper-entry safety: reject confirmed hazards, but do not require unavailable analytics."""
@@ -1131,6 +1139,11 @@ def scan_once():
         candidate["_risk"] = risk_assessment(candidate, report)
         candidate["_risk_score"] = candidate["_risk"]["score"]
         candidate["_rugcheck_report"] = report
+        if not risk_entry_allowed(candidate["_risk"]):
+            blocked += 1
+            candidate["_entry_blockers"] = [f"supplementary risk score {candidate['_risk_score']:.1f} >= {MAX_ENTRY_RISK_SCORE:.0f}"]
+            add_event(f"risk score SKIP {candidate.get('baseToken',{}).get('symbol','?')}: {candidate['_entry_blockers'][0]}")
+            continue
         safe_candidates.append(candidate)
 
     safe_candidates.sort(key=lambda p: (float(p.get("_momentum_score") or 0),float(p.get("_rank_score") or 0)), reverse=True)
