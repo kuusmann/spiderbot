@@ -226,7 +226,7 @@ body.meme-desk{margin:0;background:#05070a;color:#e5eaf0;font-family:Inter,-appl
 .tokens{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
 .token{min-width:0;padding:12px;border:1px solid #33495a;border-radius:8px;background:linear-gradient(180deg,#1b2a35,#14212b);overflow:hidden;box-shadow:inset 0 1px #ffffff08}.token:first-child{border-color:#32795f;box-shadow:inset 0 0 18px #2ca87d12}
 .tokentop{display:flex;justify-content:space-between;color:#91a6b5;font:10px ui-monospace,monospace;letter-spacing:.5px}.token h3{font-size:19px;margin:10px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.price{font:800 16px ui-monospace,monospace}.green{color:#53dba0!important}.red{color:#ff687e!important}
-.spark{height:138px;margin:10px 0 6px;overflow:hidden}.spark svg{width:100%;height:100%;display:block}.nochart{height:138px;display:grid;place-items:center;color:#8297a8;font:9px ui-monospace,monospace;letter-spacing:.5px;border-radius:5px;background:repeating-linear-gradient(0deg,transparent 0 30px,#ffffff05 31px 32px)}
+.chart-host{height:165px;margin:8px 0 6px;overflow:hidden;border:1px solid #2b3f50;border-radius:5px;background:#17232d;position:relative}.chart-loading{height:100%;display:grid;place-items:center;color:#8297a8;font:9px ui-monospace,monospace;letter-spacing:.4px;text-align:center;padding:8px}.chart-link{display:block;margin:2px 0 8px;text-align:right;color:#64d8aa;font:8px ui-monospace,monospace;letter-spacing:.4px;text-decoration:none}.chart-link:active{opacity:.7}.token-change{font-weight:800}
 .stats,.trades{display:flex;justify-content:space-between;gap:6px;margin-top:8px;color:#91a6b5;font:9px ui-monospace,monospace}.stats b{display:block;color:#dce8f0;font-size:12px;margin-top:4px}.trades{border-top:1px solid #344957;padding-top:9px;color:#9aafbd;font-size:9px}.source{display:block;color:#64758a;font:6px ui-monospace,monospace;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lower{display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:10px}.lower .panel{min-height:225px}
 .flow-numbers{display:flex;align-items:baseline;gap:8px;margin:17px 0}.flow-numbers b{font:700 25px ui-monospace,monospace;color:#55dda1}.flow-numbers b:nth-of-type(2){color:#ff6c80;margin-left:18px}.flow-numbers small{font:7px ui-monospace,monospace;color:#74869a}
@@ -472,28 +472,29 @@ body.meme-desk main.desk .a6{right:0!important}
 <article class="agent a5 hero-agent" data-agent="valvur"><b>BATMAN</b><small>RISK / SECURITY</small><em>WAITING</em><span>RUGCHECK</span><i class="hero-avatar bat-hero" aria-hidden="true">🦇</i></article>
 <article class="agent a6 hero-agent" data-agent="jano"><b>🟠 JANO</b><small>COMMANDER / FINAL DECISION</small><em>WAITING</em><span>BUY / WAIT / SKIP</span><i class="hero-avatar jano-hero" aria-hidden="true">👑</i></article>
 </div><div class="panelfoot"><span id="network-action">Awaiting first scanner cycle…</span><span id="lastscan">LAST SCAN —</span></div></section>
-<section class="panel"><div class="panelhead"><div><b>02 / LIVE TOKEN CHARTS</b><small>REAL DISCOVERED TOKENS · 5 MINUTE PRICE CHANGE · DEX PAIR DATA</small></div><span id="token-count">0 MARKETS</span></div><div id="tokens" class="tokens"><div class="empty">Waiting for eligible tokens…</div></div></section>
+<section class="panel"><div class="panelhead"><div><b>02 / LIVE TOKEN CHARTS</b><small>TRADINGVIEW LIGHTWEIGHT CHARTS · REAL GECKOTERMINAL DEX OHLCV · 1M CANDLES</small></div><span id="token-count">0 MARKETS</span></div><div id="tokens" class="tokens"><div class="empty">Loading live Solana markets…</div></div><div class="panelfoot"><span>Live pool candles · zoom and drag to inspect</span><span>GeckoTerminal data · TradingView chart engine</span></div></section>
 
 <section class="panel strategy-panel"><div class="panelhead"><div><b>03 / ACTIVE STRATEGY · FULL SEND</b><small>CONFIGURED PAPER RULES · NO LIVE WALLET EXECUTION</small></div><span>STRATEGY ON</span></div>
 <div class="strategy-grid">
 <div class="strategy-cell"><small>STARTING BANKROLL</small><b>€1,000</b></div>
-<div class="strategy-cell"><small>POSITION SIZE</small><b>3.5% EQUITY</b></div>
-<div class="strategy-cell"><small>MAX OPEN POSITIONS</small><b>10</b></div>
-<div class="strategy-cell"><small>SCALP TAKE PROFIT</small><b>+30%</b></div>
-<div class="strategy-cell"><small>STOP LOSS</small><b>−15%</b></div>
-<div class="strategy-cell"><small>TIME STOP</small><b>4 MIN</b></div>
-<div class="strategy-cell"><small>RUNNER FREQUENCY</small><b>EVERY 3RD ENTRY</b></div>
-<div class="strategy-cell"><small>RUNNER PARTIAL TP</small><b>HALF AT +50%</b></div>
-<div class="strategy-cell"><small>RUNNER TRAIL</small><b>25% GIVEBACK</b></div>
-<div class="strategy-cell"><small>DAILY LOSS LIMIT</small><b>−€200</b></div>
+<div class="strategy-cell"><small>POSITION SIZE</small><b>6% EQUITY</b></div>
+<div class="strategy-cell"><small>MAX OPEN POSITIONS</small><b>8</b></div>
+<div class="strategy-cell"><small>MAX PORTFOLIO EXPOSURE</small><b>50% EQUITY</b></div>
+<div class="strategy-cell"><small>SCALP TAKE PROFIT</small><b>+25%</b></div>
+<div class="strategy-cell"><small>STOP LOSS</small><b>−12%</b></div>
+<div class="strategy-cell"><small>TIME STOP · FLAT POSITIONS</small><b>60 MIN</b></div>
+<div class="strategy-cell"><small>RUNNER FREQUENCY</small><b>EVERY 2ND ENTRY</b></div>
+<div class="strategy-cell"><small>RUNNER PARTIAL TP</small><b>HALF AT +40%</b></div>
+<div class="strategy-cell"><small>RUNNER TRAIL</small><b>20% GIVEBACK</b></div>
+<div class="strategy-cell"><small>DAILY LOSS LIMIT</small><b>−€60</b></div>
 <div class="strategy-cell"><small>REDUCE SIZE AFTER</small><b>+€500 · HALF SIZE</b></div>
-<div class="strategy-cell"><small>DAILY PROFIT STOP</small><b>+€2,000</b></div>
+<div class="strategy-cell"><small>DAILY PROFIT STOP</small><b>+€150</b></div>
 </div>
 <div class="strategy-group">TOKEN FILTERS</div>
-<div class="strategy-tags"><span>POOL AGE 2–1440 MIN</span><span>MCAP $20K–$20M</span><span>LIQUIDITY ≥$8K</span><span>VOLUME SPIKE ≥2×</span><span>BUYERS / SELLERS ≥0.7×</span><span>TOP 10 HOLDERS &lt;30%</span><span>DEV HOLDING &lt;5%</span><span>LP LOCK ≥80%</span><span>BUNDLE CLUSTER ≤25%</span><span>ONE WALLET VOLUME ≤25%</span><span>HOLDER GROWTH ≥3%</span><span>SKIP +100% / 10 MIN</span><span>SELL IMPACT ≤2%</span></div>
+<div class="strategy-tags"><span>POOL AGE 30–43200 MIN</span><span>MCAP $5M–$2B</span><span>LIQUIDITY ≥$75K</span><span>24H VOLUME ≥$250K</span><span>5M VOLUME ≥$1K</span><span>BUY / SELL ≥1.0×</span><span>BUY DIP 1–8%</span><span>2M RECOVERY ≥0.35%</span><span>TOP 10 HOLDERS &lt;30%</span><span>DEV HOLDING &lt;5%</span><span>LP LOCK ≥80%</span><span>BUNDLE CLUSTER ≤25%</span><span>SKIP +100% / 10 MIN</span></div>
 <div class="strategy-group">PAPER EXECUTION MODEL</div>
 <div class="strategy-tags"><span>3.5% SLIPPAGE EACH SIDE</span><span>300 MS SIMULATED LATENCY</span><span>12% SIMULATED FAILED TX</span><span>LIVE TRADING DISABLED</span></div>
-<div class="strategy-note">Safety checks fail closed: if required holder, developer, liquidity-lock or buyer/seller data is missing, the token is blocked. Pool age is currently used as a proxy for post-migration age.</div>
+<div class="strategy-note">Paper-only dip/rebound strategy. A setup requires a 1–8% pullback and a 2-minute recovery, or strong positive momentum. Risk checks remain mandatory; no screen or metric can guarantee a future price rise. Exposure is capped at 50% of equity.</div>
 </section>
 <section class="panel news-panel"><div class="panelhead"><div><b>03 / MARKET NEWS FEED</b><small>FREE PUBLIC RSS · COINDESK + COINTELEGRAPH · NOT TOKEN-SPECIFIC SIGNALS</small></div><span id="news-status">CONNECTING</span></div><div id="news-items" class="news-items"><div class="empty">Loading public headlines…</div></div><div class="panelfoot"><span>Public RSS headlines · verify information independently</span><span id="news-updated">LAST UPDATE —</span></div></section>
 <section class="lower">
@@ -514,9 +515,54 @@ body.meme-desk main.desk .a6{right:0!important}
 </section>
 <footer><span>janobot</span><span>SIMULATED TRADES ONLY · NO WALLET SIGNING · NO REAL ORDERS</span></footer>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.3.0/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),eur=n=>'€'+Number(n||0).toFixed(2),usd=n=>'$'+Number(n||0).toLocaleString('en-US',{maximumFractionDigits:0}),pct=n=>(Number(n)>=0?'+':'')+Number(n||0).toFixed(1)+'%';
-function chart(history,change){const samples=(history||[]).filter(x=>Number(x.p)>0&&Number(x.t)>0).slice(-420);if(samples.length<3)return '<div class="nochart">LIVE · COLLECTING PRICE DATA</div>';const buckets={};samples.forEach(x=>{const k=Math.floor(Number(x.t)/60);if(!buckets[k])buckets[k]={t:k,o:Number(x.p),h:Number(x.p),l:Number(x.p),c:Number(x.p)};else{const b=buckets[k];b.h=Math.max(b.h,Number(x.p));b.l=Math.min(b.l,Number(x.p));b.c=Number(x.p)}});const candles=Object.values(buckets).sort((a,b)=>a.t-b.t).slice(-24);if(candles.length<2)return '<div class="nochart">LIVE · BUILDING 1M CANDLES</div>';const lo=Math.min(...candles.map(x=>x.l)),hi=Math.max(...candles.map(x=>x.h)),pad=(hi-lo)*.08||Math.max(hi*.0005,1e-12),min=lo-pad,max=hi+pad,span=max-min,y=p=>55-(p-min)*48/span,w=100/candles.length;let marks='<path d="M0 7H100M0 30H100M0 55H100" stroke="#344957" stroke-width=".6" stroke-dasharray="1.5 2.5"/>';candles.forEach((c,i)=>{const x=i*w+w/2,up=c.c>=c.o,col=up?'#36d98c':'#ff5f78',a=y(c.o),z=y(c.c),top=Math.min(a,z),body=Math.max(1.25,Math.abs(z-a));marks+='<line x1="'+x.toFixed(2)+'" y1="'+y(c.h).toFixed(2)+'" x2="'+x.toFixed(2)+'" y2="'+y(c.l).toFixed(2)+'" stroke="'+col+'" stroke-width=".65"/><rect x="'+(x-w*.22).toFixed(2)+'" y="'+(body===1.25?(top-.625):top).toFixed(2)+'" width="'+Math.max(1,w*.44).toFixed(2)+'" height="'+body.toFixed(2)+'" fill="'+col+'" rx=".3"/>'});return '<svg viewBox="0 0 100 60" preserveAspectRatio="none" aria-label="1 minute candlestick chart">'+marks+'</svg>'}function drawAgents(rows){let n=0;(rows||[]).forEach((a,i)=>{const el=document.querySelector('[data-agent="'+a.id+'"]');if(!el)return;const st=a.status||'waiting';if(st==='active'||st==='working')n++;el.className='agent a'+(i+1)+' '+st;el.querySelector('em').textContent=({active:'ONLINE',working:'WORKING',limited:'LIMITED',blocked:'BLOCKED',waiting:'WAITING',ootel:'WAITING'}[st]||st.toUpperCase());el.querySelector('span').textContent=a.last_symbol?'TOKEN / '+a.last_symbol:(a.checks||0)+' CHECKS';el.title=(a.task||'')+' · '+(a.result||'');if(a.id==='jano')$('decision').textContent=a.decision||'WAIT'});$('online').textContent=n+' / 6 ACTIVE'}
+const liveCharts=new Map();
+let tokenSignature='',lastTokenRender=0;
+function removeLiveCharts(){for(const item of liveCharts.values()){try{item.chart.remove()}catch(e){}}liveCharts.clear()}
+async function loadMarketChart(container,poolAddress){
+  if(!poolAddress){container.innerHTML='<div class="chart-loading">DEX pool address unavailable</div>';return}
+  if(!window.LightweightCharts){container.innerHTML='<div class="chart-loading">Chart library unavailable · retry page</div>';return}
+  const chart=LightweightCharts.createChart(container,{
+    autoSize:true,height:165,
+    layout:{background:{type:LightweightCharts.ColorType.Solid,color:'#17232d'},textColor:'#9db0c0',attributionLogo:true},
+    grid:{vertLines:{color:'#263946'},horzLines:{color:'#263946'}},
+    rightPriceScale:{borderColor:'#3a4d5c',scaleMargins:{top:.12,bottom:.12}},
+    timeScale:{borderColor:'#3a4d5c',timeVisible:true,secondsVisible:false,rightOffset:3,barSpacing:7},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+    localization:{priceFormatter:p=>'$'+(p>=1?p.toFixed(3):p.toPrecision(5))}
+  });
+  const series=chart.addSeries(LightweightCharts.CandlestickSeries,{
+    upColor:'#35d995',downColor:'#ff6179',
+    borderUpColor:'#35d995',borderDownColor:'#ff6179',
+    wickUpColor:'#35d995',wickDownColor:'#ff6179',
+    priceLineVisible:true,lastValueVisible:true
+  });
+  liveCharts.set(container.id,{chart,series,poolAddress});
+  try{
+    const response=await fetch('/api/chart/'+encodeURIComponent(poolAddress),{cache:'no-store'});
+    const data=await response.json();
+    if(!response.ok)throw Error(data.error||'OHLCV request failed');
+    if(!document.getElementById(container.id)||!liveCharts.has(container.id)||liveCharts.get(container.id).poolAddress!==poolAddress)return;
+    const bars=(data.candles||[]).map(x=>({time:Number(x.time),open:Number(x.open),high:Number(x.high),low:Number(x.low),close:Number(x.close)})).filter(x=>x.time&&x.open>0&&x.high>0&&x.low>0&&x.close>0).sort((a,b)=>a.time-b.time);
+    const unique=[];bars.forEach(x=>{if(!unique.length||unique[unique.length-1].time!==x.time)unique.push(x)});
+    if(!unique.length)throw Error('No real pool candles returned yet');
+    series.setData(unique);
+    chart.timeScale().fitContent();
+    container.title='Source: GeckoTerminal OHLCV · '+unique.length+' one-minute candles · updated '+new Date(data.updated).toLocaleTimeString();
+  }catch(e){
+    if(document.getElementById(container.id))container.innerHTML='<div class="chart-loading">OHLCV unavailable: '+esc(e.message)+'</div>';
+  }
+}
+function drawTokens(rows){
+  const visible=(rows||[]).slice(0,4);
+  $('token-count').textContent=visible.length+' MARKETS';
+  removeLiveCharts();
+  $('tokens').innerHTML=visible.length?visible.map((x,i)=>'<article class="token"><div class="tokentop"><span>'+(i+1)+' · SOLANA · '+esc(x.entry_setup||'MARKET')+'</span><b class="token-change '+(Number(x.change5m)>=0?'green':'red')+'">'+pct(x.change5m)+'</b></div><h3>'+esc(x.symbol)+'</h3><strong class="price token-price">$'+Number(x.price||0).toPrecision(8)+'</strong><div class="chart-host" id="market-chart-'+i+'"><div class="chart-loading">Loading real DEX candles…</div></div><a class="chart-link" href="https://www.geckoterminal.com/solana/pools/'+encodeURIComponent(x.pair_address||'')+'" target="_blank" rel="noopener noreferrer">OPEN GECKOTERMINAL ↗</a><div class="stats"><span>5M VOL <b>'+usd(x.volume5m)+'</b></span><span>LIQ <b>'+usd(x.liquidity)+'</b></span></div><div class="trades"><span>▲ '+Number(x.buys5m||0)+'</span><span>▼ '+Number(x.sells5m||0)+'</span><span>MC '+usd(x.marketCap)+'</span></div>'+(x.news&&x.news.length?'<div class="token-news">NEWS MATCH · '+x.news.length+'<a href="'+esc(x.news[0].url)+'" target="_blank" rel="noopener noreferrer">'+esc(x.news[0].title)+'</a></div>':'<div class="token-news muted-news">NO DIRECT NEWS MATCH</div>')+'<small class="source">'+esc((x.sources||[]).join(' · ')||'DEX PAIR')+'</small></article>').join(''):'<div class="empty">No liquid Solana market currently meets the entry filters.</div>';
+  visible.forEach((x,i)=>{const el=$('market-chart-'+i);if(el)loadMarketChart(el,x.pair_address)});
+}
+function drawAgents(rows){let n=0;(rows||[]).forEach((a,i)=>{const el=document.querySelector('[data-agent="'+a.id+'"]');if(!el)return;const st=a.status||'waiting';if(st==='active'||st==='working')n++;el.className='agent a'+(i+1)+' '+st;el.querySelector('em').textContent=({active:'ONLINE',working:'WORKING',limited:'LIMITED',blocked:'BLOCKED',waiting:'WAITING',ootel:'WAITING'}[st]||st.toUpperCase());el.querySelector('span').textContent=a.last_symbol?'TOKEN / '+a.last_symbol:(a.checks||0)+' CHECKS';el.title=(a.task||'')+' · '+(a.result||'');if(a.id==='jano')$('decision').textContent=a.decision||'WAIT'});$('online').textContent=n+' / 6 ACTIVE'}
 function drawTokens(rows){$('token-count').textContent=(rows||[]).length+' MARKETS';$('tokens').innerHTML=rows&&rows.length?rows.slice(0,6).map((x,i)=>'<article class="token"><div class="tokentop"><span>'+(i+1)+' · SOLANA</span><b class="'+(Number(x.change5m)>=0?'green':'red')+'">'+pct(x.change5m)+'</b></div><h3>'+esc(x.symbol)+'</h3><strong class="price">$'+Number(x.price||0).toPrecision(8)+'</strong><div class="spark">'+chart(x.history,Number(x.change5m))+'</div><div class="stats"><span>5M VOL <b>'+usd(x.volume5m)+'</b></span><span>LIQ <b>'+usd(x.liquidity)+'</b></span></div><div class="trades"><span>▲ '+Number(x.buys5m||0)+'</span><span>▼ '+Number(x.sells5m||0)+'</span><span>MC '+usd(x.marketCap)+'</span></div>'+(x.news&&x.news.length?'<div class="token-news">NEWS MATCH · '+x.news.length+'<a href="'+esc(x.news[0].url)+'" target="_blank" rel="noopener noreferrer">'+esc(x.news[0].title)+'</a></div>':'<div class="token-news muted-news">NO DIRECT NEWS MATCH</div>')+'<small class="source">'+esc((x.sources||[]).join(' · ')||'DEX PAIR')+'</small></article>').join(''):'<div class="empty">No tokens currently pass the filters. Scanner is still running.</div>'}
 function drawFlow(rows){const b=(rows||[]).reduce((n,x)=>n+Number(x.buys5m||0),0),s=(rows||[]).reduce((n,x)=>n+Number(x.sells5m||0),0),t=b+s;$('buys').textContent=b;$('sells').textContent=s;$('ratio').textContent='B/S '+(b/Math.max(1,s)).toFixed(2);$('buybar').style.width=(t?b/t*100:0)+'%';$('sellbar').style.width=(t?s/t*100:0)+'%';$('flow-note').textContent=t?'Transactions summed from '+rows.length+' candidates over the last 5 minutes.':'No current candidate transaction data.'}
 function drawPositions(rows){$('poscount').textContent=(rows||[]).length+' OPEN';$('positions').innerHTML=rows&&rows.length?rows.map(p=>'<div class="row"><b>'+esc(p.symbol)+'</b><span class="'+(p.pnl>=0?'green':'red')+'">'+eur(p.pnl)+' · '+pct(p.pnl_pct)+'</span></div>').join(''):'<div class="empty">No open paper positions.</div>'}
@@ -529,6 +575,9 @@ function drawHistory(rows){const list=(rows||[]).slice(-16).reverse();$('agentfe
 function drawStrategyPerformance(rows){rows=rows||[];$('strategy-performance').innerHTML=rows.length?rows.map(x=>'<div class="row"><span><b>'+esc(x.strategy.toUpperCase())+'</b><small> · '+x.trades+' trades · '+x.win_rate_pct+'% wins</small></span><b class="'+(x.pnl_eur>=0?'green':'red')+'">'+(x.pnl_eur>=0?'+':'')+eur(x.pnl_eur)+'</b></div>').join(''):'<div class="empty">No closed paper trades yet.</div>'}
 function drawTradeHistory(rows){const list=(rows||[]).slice().reverse();$('trade-count').textContent=(rows||[]).length+' TRADES';$('trade-history').innerHTML=list.length?'<table class="trade-table"><thead><tr><th>TIME</th><th>TOKEN</th><th>ENTRY</th><th>EXIT</th><th>P&L</th><th>REASON</th></tr></thead><tbody>'+list.map(t=>'<tr><td>'+ (t.closed_at?new Date(t.closed_at).toLocaleString():'—') +'</td><td>'+esc(t.symbol||'?')+'</td><td>'+eur(t.entry||0)+'</td><td>'+eur(t.exit||0)+'</td><td class="'+(Number(t.pnl)>=0?'green':'red')+'">'+(Number(t.pnl)>=0?'+':'')+eur(t.pnl||0)+' ('+pct((t.pnl_pct||0)*100)+')</td><td>'+esc(t.reason||t.strategy||'—')+(t.partial?' · PARTIAL':'')+'</td></tr>').join('')+'</tbody></table>':'<div class="trade-empty">No closed paper trades yet. Completed trades will appear here.</div>'}
 
-async function refresh(){try{const r=await fetch('/api/live',{cache:'no-store'});if(!r.ok)throw Error('API '+r.status);const d=await r.json(),c=d.candidates||[];$('live').innerHTML='<i></i>'+(d.paused?'PAUSED':'LIVE · PAPER');$('total').textContent=eur(d.total);$('pnl').textContent=(d.realized_pnl>=0?'+':'')+eur(d.realized_pnl)+' REALIZED';$('cash').textContent=eur(d.cash);$('posvalue').textContent=eur(d.positions_value);$('scanmeta').textContent=(d.pair_count||0)+' PAIRS SCANNED · '+(d.signal_count||0)+' PASSED FILTERS';$('clock').textContent=new Date().toLocaleTimeString();$('lastscan').textContent=d.last_scan&&d.last_scan!=='not yet'?'LAST SCAN '+new Date(d.last_scan).toLocaleTimeString():'LAST SCAN —';$('persistence').textContent=d.persistence&&d.persistence.ok?'portfolio saved':'storage error';$('persistence').className='storage-pill '+(d.persistence&&d.persistence.ok?'storage-ok':'storage-bad');$('network-action').textContent=d.last_error?'SCANNER ERROR · '+d.last_error:(d.paused?'Trading paused · monitoring active':'Scanner active · '+((d.rugcheck||{}).checked||0)+' risk reports checked');drawAgents(d.agents);drawWalletTracker(d.wallet_tracker);drawWalletLeaderboard(d.wallet_performance);drawTokens(c);drawFlow(c);drawPositions(d.positions);drawEvents(d.events);drawHistory(d.agent_history);drawTradeHistory(d.trades);drawStrategyPerformance(d.strategy_performance)}catch(e){$('live').textContent='OFFLINE';$('network-action').textContent='API CONNECTION LOST · '+e.message}}
+async function refresh(){try{const r=await fetch('/api/live',{cache:'no-store'});if(!r.ok)throw Error('API '+r.status);const d=await r.json(),c=d.candidates||[];$('live').innerHTML='<i></i>'+(d.paused?'PAUSED':'LIVE · PAPER');$('total').textContent=eur(d.total);$('pnl').textContent=(d.realized_pnl>=0?'+':'')+eur(d.realized_pnl)+' REALIZED';$('cash').textContent=eur(d.cash);$('posvalue').textContent=eur(d.positions_value);$('scanmeta').textContent=(d.pair_count||0)+' PAIRS SCANNED · '+(d.signal_count||0)+' PASSED FILTERS';$('clock').textContent=new Date().toLocaleTimeString();$('lastscan').textContent=d.last_scan&&d.last_scan!=='not yet'?'LAST SCAN '+new Date(d.last_scan).toLocaleTimeString():'LAST SCAN —';$('persistence').textContent=d.persistence&&d.persistence.ok?'portfolio saved':'storage error';$('persistence').className='storage-pill '+(d.persistence&&d.persistence.ok?'storage-ok':'storage-bad');$('network-action').textContent=d.last_error?'SCANNER ERROR · '+d.last_error:(d.paused?'Trading paused · monitoring active':'Scanner active · '+((d.rugcheck||{}).checked||0)+' risk reports checked');drawAgents(d.agents);drawWalletTracker(d.wallet_tracker);drawWalletLeaderboard(d.wallet_performance);
+const tokenSig=(c||[]).slice(0,4).map(x=>x.address).join('|');
+if(tokenSig!==tokenSignature||Date.now()-lastTokenRender>=60000){drawTokens(c);tokenSignature=tokenSig;lastTokenRender=Date.now();}
+drawFlow(c);drawPositions(d.positions);drawEvents(d.events);drawHistory(d.agent_history);drawTradeHistory(d.trades);drawStrategyPerformance(d.strategy_performance)}catch(e){$('live').textContent='OFFLINE';$('network-action').textContent='API CONNECTION LOST · '+e.message}}
 refresh();refreshNews();setInterval(refreshNews,300000);setInterval(refresh,5000);setInterval(()=>$('clock').textContent=new Date().toLocaleTimeString(),1000);
 </script></body></html>
