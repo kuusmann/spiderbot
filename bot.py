@@ -17,6 +17,8 @@ STATE_FILE = Path(os.environ.get("STATE_FILE", "/var/data/state.json"))
 STARTING_BALANCE = 1000.0
 POSITION_RISK_PCT = 0.06
 MAX_POSITIONS = 8
+MAX_PORTFOLIO_EXPOSURE_PCT = 0.50
+MAX_BUYS_PER_SCAN = 2
 MAX_TRADES_PER_DAY = 100
 SCALP_TAKE_PROFIT = 0.25
 SCALP_STOP_LOSS = -0.12
@@ -27,7 +29,7 @@ RUNNER_HALF_TP = 0.40
 RUNNER_TRAIL_GIVEBACK = 0.20
 DAILY_STOP_LOSS_EUR = -60.0
 REDUCE_SIZE_AT_PROFIT_EUR = 500.0
-DAILY_TARGET_EUR = 150.0
+DAILY_TARGET_EUR = 2000.0
 SIM_SLIPPAGE_PCT = 0.035
 SIM_LATENCY_MS = 300
 SIM_FAILED_TX_RATE = 0.12
@@ -37,7 +39,7 @@ MIN_LIQUIDITY_USD = 75000.0
 MIN_MARKET_CAP_USD = 5000000.0
 MAX_MARKET_CAP_USD = 2000000000.0
 MIN_POOL_AGE_MINUTES = 30.0
-MAX_POOL_AGE_MINUTES = 43200.0
+MAX_POOL_AGE_MINUTES = 2628000.0
 MIN_VOLUME_SPIKE_MULTIPLE = 1.0
 MIN_BUYER_SELLER_RATIO = 1.0
 MIN_VOLUME_24H_USD = 250000.0
@@ -643,7 +645,7 @@ def dynamic_trade_size(equity, daily_pnl):
     """Compound measured paper position sizes with a strict total-exposure ceiling."""
     fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)
     invested = sum(float(p.get("cost", 0)) for p in state.get("positions", {}).values())
-    exposure_room = max(0.0, float(equity) * 0.50 - invested)
+    exposure_room = max(0.0, float(equity) * MAX_PORTFOLIO_EXPOSURE_PCT - invested
     return round(max(0.0, min(float(equity) * fraction,
                               float(state.get("cash", 0)) - SIM_TX_FEE_EUR, exposure_room)), 2)
 
@@ -1127,7 +1129,7 @@ def scan_once():
                         signal["entry_size_eur"] = size
                         break
                 add_event(f"paper buy {symbol} | EUR {size:.2f} | {candidate.get('_setup')} | {'RUNNER' if runner else 'SCALP'} | rank {candidate.get('_rank_score')}")
-                if len(bought_symbols) >= 2 or len(state["positions"]) >= MAX_POSITIONS or state["daily_count"] >= MAX_TRADES_PER_DAY:
+                if len(bought_symbols) >= MAX_BUYS_PER_SCAN or len(state["positions"]) >= MAX_POSITIONS or state["daily_count"] >= MAX_TRADES_PER_DAY:
                     break
 
         try:
@@ -1401,7 +1403,7 @@ def live_data():
             "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],"wallet_performance":wallet_performance(),"strategy_performance":strategy_performance(),
             "candidates":last_candidates,"wallet_tracker":wallet_payload,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
-            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
+            "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"max_portfolio_exposure_pct":MAX_PORTFOLIO_EXPOSURE_PCT*100,"max_buys_per_scan":MAX_BUYS_PER_SCAN,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_volume_24h_usd":MIN_VOLUME_24H_USD,"min_volume_5m_usd":MIN_VOLUME_5M_USD,"min_dip_pct":MIN_DIP_PCT,"max_dip_pct":MAX_DIP_PCT,"min_bounce_pct":MIN_BOUNCE_PCT,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
     return jsonify(payload)
 
 def run_web():
