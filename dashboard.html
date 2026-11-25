@@ -576,6 +576,8 @@ function updateTokenMetrics(rows){
     if(stats.length>1){stats[0].textContent=usd(x.volume5m);stats[1].textContent=usd(x.liquidity)}
     const trades=card.querySelector('.trades');
     if(trades)trades.innerHTML='<span>▲ '+Number(x.buys5m||0)+'</span><span>▼ '+Number(x.sells5m||0)+'</span><span>MC '+usd(x.marketCap)+'</span>';
+    const score=card.querySelector('.score-row');
+    if(score){score.innerHTML='MOMENTUM <b>'+Number(x.momentum_score||0).toFixed(0)+'/100</b> · RISK <b>'+Number(x.risk_score||0).toFixed(0)+'/100 '+esc(x.risk_level||'—')+'</b>';score.title=(x.risk_factors||[]).join(' · ')}
   });
 }
 function drawAgents(rows){let n=0;(rows||[]).forEach((a,i)=>{const el=document.querySelector('[data-agent="'+a.id+'"]');if(!el)return;const st=a.status||'waiting';if(st==='active'||st==='working')n++;el.className='agent a'+(i+1)+' '+st;el.querySelector('em').textContent=({active:'ONLINE',working:'WORKING',limited:'LIMITED',blocked:'BLOCKED',waiting:'WAITING',ootel:'WAITING'}[st]||st.toUpperCase());el.querySelector('span').textContent=a.last_symbol?'TOKEN / '+a.last_symbol:(a.checks||0)+' CHECKS';el.title=(a.task||'')+' · '+(a.result||'');if(a.id==='jano')$('decision').textContent=a.decision||'WAIT'});$('online').textContent=n+' / 6 ACTIVE'}
@@ -595,6 +597,7 @@ function drawTradeHistory(rows){const list=(rows||[]).slice().reverse();$('trade
 async function refresh(){try{const r=await fetch('/api/live',{cache:'no-store'});if(!r.ok)throw Error('API '+r.status);const d=await r.json(),c=d.candidates||[];$('live').innerHTML='<i></i>'+(d.paused?'PAUSED':'LIVE · PAPER');$('total').textContent=eur(d.total);$('pnl').textContent=(d.realized_pnl>=0?'+':'')+eur(d.realized_pnl)+' REALIZED';$('cash').textContent=eur(d.cash);$('posvalue').textContent=eur(d.positions_value);$('scanmeta').textContent=(d.pair_count||0)+' PAIRS SCANNED · '+(d.signal_count||0)+' PASSED FILTERS';$('clock').textContent=new Date().toLocaleTimeString();$('lastscan').textContent=d.last_scan&&d.last_scan!=='not yet'?'LAST SCAN '+new Date(d.last_scan).toLocaleTimeString():'LAST SCAN —';$('persistence').textContent=d.persistence&&d.persistence.ok?'portfolio saved':'storage error';$('persistence').className='storage-pill '+(d.persistence&&d.persistence.ok?'storage-ok':'storage-bad');$('network-action').textContent=d.last_error?'SCANNER ERROR · '+d.last_error:(d.paused?'Trading paused · monitoring active':'Scanner active · '+((d.rugcheck||{}).checked||0)+' risk reports checked');drawAgents(d.agents);drawWalletTracker(d.wallet_tracker);drawWalletLeaderboard(d.wallet_performance);
 const tokenSig=(c||[]).slice(0,4).map(x=>x.address).join('|');
 if(tokenSig!==tokenSignature||Date.now()-lastTokenRender>=60000){drawTokens(c);tokenSignature=tokenSig;lastTokenRender=Date.now();}
+updateTokenMetrics(c);
 drawFlow(c);drawPositions(d.positions);drawEvents(d.events);drawHistory(d.agent_history);drawTradeHistory(d.trades);drawStrategyPerformance(d.strategy_performance);drawMarketRegime(d.market_regime);drawSignalPerformance(d.forward_signal_performance)}catch(e){$('live').textContent='OFFLINE';$('network-action').textContent='API CONNECTION LOST · '+e.message}}
 refresh();refreshNews();setInterval(refreshNews,300000);setInterval(refresh,5000);setInterval(()=>$('clock').textContent=new Date().toLocaleTimeString(),1000);
 </script></body></html>
