@@ -76,7 +76,7 @@ class SpiderBotRuleTests(unittest.TestCase):
 
     def test_runner_takes_partial_profit(self):
         position = {"entry_price": 100, "peak_price": 140, "runner": True, "runner_half_sold": False}
-        reason, partial = bot.position_exit_decision(position, {}, 141, 60)
+        reason, partial = bot.position_exit_decision(position, {}, 140, 60)
         self.assertIn("runner partial TP", reason)
         self.assertTrue(partial)
 
