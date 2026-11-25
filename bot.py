@@ -1,4 +1,4 @@
-import os, json, time, logging, asyncio, threading, copy, random, re, xml.etree.ElementTree as ET
+import os, json, time, logging, asyncio, threading, copy, random, re, csv, io, xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from datetime import datetime, timezone
@@ -68,6 +68,14 @@ HELIUS_API_KEY = os.environ.get("HELIUS_API_KEY", "").strip()
 WALLET_DISCOVERY_SECONDS = 900
 WALLET_POLL_SECONDS = 60
 MAX_TRACKED_WALLETS = 25
+TOKEN_COOLDOWN_HOURS = 12
+TOKEN_COOLDOWN_SECONDS = TOKEN_COOLDOWN_HOURS * 3600
+BLACKLISTED_TOKEN_ADDRESSES = {x.strip() for x in os.environ.get('TOKEN_BLACKLIST', '').split(',') if x.strip()}
+TELEGRAM_ALERTS_ENABLED = os.environ.get('TELEGRAM_ALERTS_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+ALERT_EVENT_PREFIXES = ('paper buy ', 'sell ', 'runner partial sell ', 'session exit ', 'SESSION HALTED:', 'skanni viga:')
+pending_alerts = []
+alert_lock = threading.RLock()
+alert_recent = {}
 wallet_tracker = {"status":"waiting","updated":None,"wallets":[],"signals":[],"errors":[],"discovery_errors":[],"poll_errors":[],"last_discovery":None}
 wallet_tracker_lock = threading.RLock()
 wallet_seen_signatures = {}; wallet_poll_cursor = 0
@@ -116,8 +124,20 @@ persistence_ok = False
 persistence_error = "state not loaded"
 
 def add_event(message):
-    events.append({"time": datetime.now(timezone.utc).isoformat(), "message": message})
+    stamp = datetime.now(timezone.utc).isoformat()
+    events.append({"time": stamp, "message": message})
     del events[:-40]
+    text_message = str(message)
+    if TELEGRAM_ALERTS_ENABLED and ALLOWED_USER_ID and text_message.startswith(ALERT_EVENT_PREFIXES):
+        now = time.time()
+        with alert_lock:
+            if now - alert_recent.get(text_message, 0) >= 300:
+                pending_alerts.append({"time": stamp, "message": text_message[:3500]})
+                del pending_alerts[:-30]
+                alert_recent[text_message] = now
+            for key, last in list(alert_recent.items()):
+                if now - last > 3600:
+                    alert_recent.pop(key, None)
     log.info(message)
 
 def _portfolio_equity_unlocked():
