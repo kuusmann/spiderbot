@@ -458,6 +458,7 @@ body.meme-desk main.desk .a6{right:0!important}
 @media(prefers-reduced-motion:reduce){#wallet-tracker *{scroll-behavior:auto!important}}
 
 .score-row{font-size:10px;color:var(--muted);margin-top:6px;letter-spacing:.3px}.score-row b{color:var(--text)}
+@media(max-width:760px){.desk{padding:8px!important}.tokens{grid-template-columns:1fr!important}.chart-host{min-height:165px;width:100%;overflow:hidden}.token{min-width:0;width:100%;box-sizing:border-box}.panel{min-width:0;overflow:hidden}.topbar{flex-wrap:wrap}.balance{max-width:100%}}
 </style>
 
 </head><body class="meme-desk"><main class="desk">
@@ -563,7 +564,7 @@ function drawTokens(rows){
   $('token-count').textContent=visible.length+' MARKETS';
   removeLiveCharts();
   $('tokens').innerHTML=visible.length?visible.map((x,i)=>'<article class="token" data-token-index="'+i+'"><div class="tokentop"><span>'+(i+1)+' · SOLANA · '+esc(x.entry_setup||'MARKET')+'</span><b class="token-change '+(Number(x.change5m)>=0?'green':'red')+'">'+pct(x.change5m)+'</b></div><h3>'+esc(x.symbol)+'</h3><strong class="price token-price">$'+Number(x.price||0).toPrecision(8)+'</strong><div class="chart-host" id="market-chart-'+i+'"><div class="chart-loading">Loading real DEX candles…</div></div><a class="chart-link" href="https://www.geckoterminal.com/solana/pools/'+encodeURIComponent(x.pair_address||'')+'" target="_blank" rel="noopener noreferrer">OPEN GECKOTERMINAL ↗</a><div class="stats"><span>5M VOL <b>'+usd(x.volume5m)+'</b></span><span>LIQ <b>'+usd(x.liquidity)+'</b></span></div><div class="trades"><span>▲ '+Number(x.buys5m||0)+'</span><span>▼ '+Number(x.sells5m||0)+'</span><span>MC '+usd(x.marketCap)+'</span></div>'+(x.news&&x.news.length?'<div class="token-news">NEWS MATCH · '+x.news.length+'<a href="'+esc(x.news[0].url)+'" target="_blank" rel="noopener noreferrer">'+esc(x.news[0].title)+'</a></div>':'<div class="token-news muted-news">NO DIRECT NEWS MATCH</div>')+'<div class="score-row">MOMENTUM <b>'+Number(x.momentum_score||0).toFixed(0)+'/100</b> · RISK <b>'+Number(x.risk_score||0).toFixed(0)+'/100 '+esc(x.risk_level||'—')+'</b></div><small class="source">'+esc((x.sources||[]).join(' · ')||'DEX PAIR')+'</small></article>').join(''):'<div class="empty">No liquid Solana market currently meets the entry filters.</div>';
-  visible.forEach((x,i)=>{const el=$('market-chart-'+i);if(el)setTimeout(()=>loadMarketChart(el,x.pair_address),i*1800)});
+  visible.forEach((x,i)=>{const el=$('market-chart-'+i);if(el)setTimeout(()=>loadMarketChart(el,x.pair_address),i*1200)});
 }
 function updateTokenMetrics(rows){
   (rows||[]).slice(0,4).forEach((x,i)=>{
