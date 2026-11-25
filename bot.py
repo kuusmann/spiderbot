@@ -72,7 +72,7 @@ TOKEN_COOLDOWN_HOURS = 12
 TOKEN_COOLDOWN_SECONDS = TOKEN_COOLDOWN_HOURS * 3600
 BLACKLISTED_TOKEN_ADDRESSES = {x.strip() for x in os.environ.get('TOKEN_BLACKLIST', '').split(',') if x.strip()}
 TELEGRAM_ALERTS_ENABLED = os.environ.get('TELEGRAM_ALERTS_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
-ALERT_EVENT_PREFIXES = ('paper buy ', 'sell ', 'runner partial sell ', 'session exit ', 'SESSION HALTED:', 'skanni viga:')
+ALERT_EVENT_PREFIXES = ('paper buy ', 'PAPER COPY BUY ', 'PAPER COPY SELL ', 'sell ', 'runner partial sell ', 'session exit ', 'SESSION HALTED:', 'skanni viga:', 'paper sell failed:')
 pending_alerts = []
 alert_lock = threading.RLock()
 alert_recent = {}
@@ -964,8 +964,9 @@ def apply_wallet_copy_signals(safe_candidates, pairs):
                 "opened_ts":now,"strategy":"wallet-copy","runner":False,"runner_half_sold":False,
                 "runner_peak_price":price,"copy_wallet":wallet,"copy_wallet_label":signal.get("label","tracked wallet"),
                 "sim_slippage_pct":SIM_SLIPPAGE_PCT*100,"liquidity_usd":float((candidate.get("liquidity") or {}).get("usd") or 0),
+                "risk_score":candidate.get("_risk_score",0),"momentum_score":candidate.get("_momentum_score",0),
                 "market_cap":float(candidate.get("marketCap") or candidate.get("fdv") or 0),
-                "entry_metrics":{"source":"wallet-copy","wallet":wallet,"wallet_label":signal.get("label"),"wallet_signal":sig}}
+                "entry_metrics":{"source":"wallet-copy","wallet":wallet,"wallet_label":signal.get("label"),"wallet_signal":sig,"risk_score":candidate.get("_risk_score"),"momentum_score":candidate.get("_momentum_score")}}
             add_event(f"PAPER COPY BUY {symbol} from {signal.get('label')} | EUR {size:.2f}")
             consumed.add(sig); changed=True
         elif side=="SELL":
@@ -988,7 +989,8 @@ def apply_wallet_copy_signals(safe_candidates, pairs):
             state["trades"].append({"symbol":pos["symbol"],"address":mint,"entry":pos["entry_price"],"exit":execution,
                 "pnl":realized,"pnl_pct":price/float(pos["entry_price"])-1,"closed_at":datetime.now(timezone.utc).isoformat(),
                 "reason":"tracked wallet sell","partial":False,"strategy":"wallet-copy","runner":False,
-                "entry_metrics":pos.get("entry_metrics",{})})
+                "entry_metrics":pos.get("entry_metrics",{}),"risk_score":pos.get("risk_score"),
+                "momentum_score":pos.get("momentum_score"),"simulated_slippage_pct":pos.get("sim_slippage_pct")})
             del state["positions"][mint]
             add_event(f"PAPER COPY SELL {pos['symbol']} on {signal.get('label')} exit | {realized:+.2f} EUR")
             consumed.add(sig); changed=True
@@ -1296,7 +1298,8 @@ def scan_once():
                     "pnl":realized,"pnl_pct":price/float(pos["entry_price"])-1,"closed_at":datetime.now(timezone.utc).isoformat(),
                     "reason":state.get("session_halt_reason"),"partial":False,
                     "strategy":pos.get("strategy"),"runner":bool(pos.get("runner")),
-                    "entry_metrics":pos.get("entry_metrics",{})})
+                    "entry_metrics":pos.get("entry_metrics",{}),"risk_score":pos.get("risk_score"),
+                    "momentum_score":pos.get("momentum_score"),"simulated_slippage_pct":pos.get("sim_slippage_pct")})
                 del state["positions"][address]
                 add_event(f"session exit {pos['symbol']} | {realized:+.2f} EUR")
 
