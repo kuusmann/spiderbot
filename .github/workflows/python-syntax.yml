@@ -33,10 +33,10 @@ jobs:
           import re
           from pathlib import Path
           html = Path("dashboard.html").read_text()
-          scripts = re.findall(r'<script(?![^>]*\\bsrc=)[^>]*>(.*?)</script>', html, re.I | re.S)
+          scripts = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', html, re.I | re.S)
           if not scripts:
               raise SystemExit("No inline dashboard JavaScript found")
-          Path("/tmp/dashboard-inline.js").write_text("\\n".join(scripts))
+          Path("/tmp/dashboard-inline.js").write_text("\n".join(scripts))
           PY
       - name: Check dashboard JavaScript
         run: node --check /tmp/dashboard-inline.js
