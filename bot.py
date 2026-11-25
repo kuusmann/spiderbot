@@ -837,9 +837,11 @@ def position_exit_decision(pos, pair, price, age_seconds):
     runner = bool(pos.get("runner"))
     half_sold = bool(pos.get("runner_half_sold"))
     peak = max(float(pos.get("peak_price") or entry), price)
-    if pnl_pct <= SCALP_STOP_LOSS:
+    # Tiny epsilon avoids missing exact configured thresholds due to binary float rounding.
+    epsilon = 1e-12
+    if pnl_pct <= SCALP_STOP_LOSS + epsilon:
         return f"stop loss {SCALP_STOP_LOSS * 100:.0f}%", False
-    if runner and not half_sold and pnl_pct >= RUNNER_HALF_TP:
+    if runner and not half_sold and pnl_pct + epsilon >= RUNNER_HALF_TP:
         return f"runner partial TP +{RUNNER_HALF_TP * 100:.0f}%", True
     if runner and half_sold and price <= float(pos.get("runner_peak_price") or peak) * (1 - RUNNER_TRAIL_GIVEBACK):
         return f"runner trailing giveback {RUNNER_TRAIL_GIVEBACK * 100:.0f}%", False
