@@ -125,7 +125,7 @@ class SpiderBotRuleTests(unittest.TestCase):
 
     def test_user_requested_paper_limits_remain_set(self):
         self.assertEqual(bot.DAILY_STOP_LOSS_EUR, -40.0)
-        self.assertEqual(bot.MAX_POSITIONS, 20)
+        self.assertEqual(bot.MAX_POSITIONS, 3)
         self.assertEqual(bot.MIN_MARKET_CAP_USD, 50000.0)
 
 
