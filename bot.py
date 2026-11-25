@@ -92,7 +92,7 @@ rugcheck_last_request = 0.0
 rugcheck_stats = {"checked": 0, "passed": 0, "blocked": 0, "errors": 0, "status": "starting"}
 chart_cache = {}
 chart_cache_lock = threading.RLock()
-CHART_CACHE_SECONDS = 180
+CHART_CACHE_SECONDS = 600
 chart_request_lock = threading.RLock()
 chart_last_request = 0.0
 chart_rate_limit_until = 0.0
@@ -1643,25 +1643,25 @@ def chart_data(pool_address):
             if stale:
                 return jsonify({"candles":stale["candles"],"source":"GeckoTerminal","cached":True,
                                 "stale":True,"warning":"GeckoTerminal rate-limit cooldown","updated":stale["updated"]})
-            return jsonify({"error":"GeckoTerminal rate-limit cooldown; retry shortly","candles":[]}), 503
+            return jsonify({"error":"GeckoTerminal rate-limit cooldown; retry in up to 15 minutes","candles":[]}), 503
         # Serialize chart fetches and add spacing to avoid bursts from several cards.
-        wait = 1.5 - (now - chart_last_request)
+        wait = 8.0 - (now - chart_last_request)
         if wait > 0:
             time.sleep(wait)
         chart_last_request = time.time()
         try:
             url = f"https://api.geckoterminal.com/api/v2/networks/solana/pools/{pool_address}/ohlcv/minute"
-            response = requests.get(url, params={"aggregate":"1","limit":"180","currency":"usd","token":"base"},
+            response = requests.get(url, params={"aggregate":"1","limit":"60","currency":"usd","token":"base"},
                                    headers={"Accept":"application/json;version=20230203",
                                             "User-Agent":"janobot-dashboard/1.0"}, timeout=12)
             if response.status_code == 429:
-                chart_rate_limit_until = time.time() + 120
+                chart_rate_limit_until = time.time() + 900
                 with chart_cache_lock:
                     stale = chart_cache.get(pool_address)
                 if stale:
                     return jsonify({"candles":stale["candles"],"source":"GeckoTerminal","cached":True,
                                     "stale":True,"warning":"GeckoTerminal rate limited; using cached candles","updated":stale["updated"]})
-                return jsonify({"error":"GeckoTerminal rate-limited requests; retry in about 2 minutes","candles":[]}), 503
+                return jsonify({"error":"GeckoTerminal rate-limited requests; retry in about 15 minutes","candles":[]}), 503
             response.raise_for_status()
             payload = response.json()
             raw = (((payload.get("data") or {}).get("attributes") or {}).get("ohlcv_list") or [])
