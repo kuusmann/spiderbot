@@ -9,6 +9,9 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# Telegram/httpx request URLs can contain the bot token; suppress URL-bearing INFO logs.
+for noisy_logger in ("httpx", "httpcore", "telegram", "telegram.ext"):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 log = logging.getLogger("spider-bot")
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_USER_ID = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
@@ -1299,6 +1302,14 @@ def scan_once():
             if address in state["positions"] and state["positions"][address].get("runner_half_sold"):
                 state["positions"][address]["runner_peak_price"] = max(float(state["positions"][address].get("runner_peak_price") or price), price)
 
+            # Enforce the daily guard during position processing, not only at scan end.
+            # Volatility/slippage can still cause unavoidable overshoot beyond the limit.
+            current_day_pnl = daily_pnl_unlocked()
+            if not state.get("session_halted") and current_day_pnl <= DAILY_STOP_LOSS_EUR:
+                state["session_halted"] = True
+                state["session_halt_reason"] = "daily loss cap"
+                add_event(f"SESSION HALTED: daily loss cap | daily PnL {current_day_pnl:+.2f} EUR")
+
         day_pnl = daily_pnl_unlocked()
         if not state.get("session_halted") and (day_pnl <= DAILY_STOP_LOSS_EUR or day_pnl >= DAILY_TARGET_EUR):
             state["session_halted"] = True
@@ -1643,7 +1654,7 @@ def chart_data(pool_address):
             if stale:
                 return jsonify({"candles":stale["candles"],"source":"GeckoTerminal","cached":True,
                                 "stale":True,"warning":"GeckoTerminal rate-limit cooldown","updated":stale["updated"]})
-            return jsonify({"error":"GeckoTerminal rate-limit cooldown; retry in up to 15 minutes","candles":[]}), 503
+            return jsonify({"candles":[],"source":"GeckoTerminal","cached":False,"warning":"rate-limit cooldown; no cached candle data"}), 200
         # Serialize chart fetches and add spacing to avoid bursts from several cards.
         wait = 1.5 - (now - chart_last_request)
         if wait > 0:
@@ -1661,7 +1672,7 @@ def chart_data(pool_address):
                 if stale:
                     return jsonify({"candles":stale["candles"],"source":"GeckoTerminal","cached":True,
                                     "stale":True,"warning":"GeckoTerminal rate limited; using cached candles","updated":stale["updated"]})
-                return jsonify({"error":"GeckoTerminal rate-limited requests; retry in about 15 minutes","candles":[]}), 503
+                return jsonify({"candles":[],"source":"GeckoTerminal","cached":False,"warning":"rate limited; no cached candle data"}), 200
             response.raise_for_status()
             payload = response.json()
             raw = (((payload.get("data") or {}).get("attributes") or {}).get("ohlcv_list") or [])
