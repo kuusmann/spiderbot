@@ -67,6 +67,9 @@ class SpiderBotRuleTests(unittest.TestCase):
         self.assertTrue(bot.risk_entry_allowed({"score": 59.9}))
         self.assertFalse(bot.risk_entry_allowed({"score": 60.0}))
         self.assertFalse(bot.risk_entry_allowed({"score": 75}))
+        self.assertFalse(bot.risk_entry_allowed({}))
+        self.assertFalse(bot.risk_entry_allowed({"score": "invalid"}))
+        self.assertFalse(bot.risk_entry_allowed({"score": 101}))
 
     def test_hard_stop_loss_exit(self):
         position = {"entry_price": 100, "peak_price": 100, "runner": False}
