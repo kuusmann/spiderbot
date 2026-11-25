@@ -226,7 +226,7 @@ body.meme-desk{margin:0;background:#05070a;color:#e5eaf0;font-family:Inter,-appl
 .tokens{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
 .token{min-width:0;padding:12px;border:1px solid #33495a;border-radius:8px;background:linear-gradient(180deg,#1b2a35,#14212b);overflow:hidden;box-shadow:inset 0 1px #ffffff08}.token:first-child{border-color:#32795f;box-shadow:inset 0 0 18px #2ca87d12}
 .tokentop{display:flex;justify-content:space-between;color:#91a6b5;font:10px ui-monospace,monospace;letter-spacing:.5px}.token h3{font-size:19px;margin:10px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.price{font:800 16px ui-monospace,monospace}.green{color:#53dba0!important}.red{color:#ff687e!important}
-.chart-host{height:165px;margin:8px 0 6px;overflow:hidden;border:1px solid #2b3f50;border-radius:5px;background:#17232d;position:relative}.chart-loading{height:100%;display:grid;place-items:center;color:#8297a8;font:9px ui-monospace,monospace;letter-spacing:.4px;text-align:center;padding:8px}.chart-link{display:block;margin:2px 0 8px;text-align:right;color:#64d8aa;font:8px ui-monospace,monospace;letter-spacing:.4px;text-decoration:none}.chart-link:active{opacity:.7}.token-change{font-weight:800}
+.chart-host{width:100%;height:190px;min-height:190px;margin:8px 0 6px;overflow:hidden;border:1px solid #2b3f50;border-radius:5px;background:#17232d;position:relative;contain:layout paint}.chart-host canvas{display:block}.chart-loading{height:100%;min-height:0;display:grid;place-items:center;color:#8297a8;font:9px ui-monospace,monospace;letter-spacing:.4px;text-align:center;padding:8px;overflow-wrap:anywhere}.chart-link{display:block;margin:2px 0 8px;text-align:right;color:#64d8aa;font:8px ui-monospace,monospace;letter-spacing:.4px;text-decoration:none}.chart-link:active{opacity:.7}.token-change{font-weight:800}
 .stats,.trades{display:flex;justify-content:space-between;gap:6px;margin-top:8px;color:#91a6b5;font:9px ui-monospace,monospace}.stats b{display:block;color:#dce8f0;font-size:12px;margin-top:4px}.trades{border-top:1px solid #344957;padding-top:9px;color:#9aafbd;font-size:9px}.source{display:block;color:#64758a;font:6px ui-monospace,monospace;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lower{display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:10px}.lower .panel{min-height:225px}
 .flow-numbers{display:flex;align-items:baseline;gap:8px;margin:17px 0}.flow-numbers b{font:700 25px ui-monospace,monospace;color:#55dda1}.flow-numbers b:nth-of-type(2){color:#ff6c80;margin-left:18px}.flow-numbers small{font:7px ui-monospace,monospace;color:#74869a}
@@ -258,7 +258,7 @@ body.meme-desk main.desk .tokens{grid-template-columns:repeat(6,minmax(0,1fr))}
 body.meme-desk main.desk .lower{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.25fr)}
 body.meme-desk main.desk .agent{width:clamp(160px,17vw,230px)}
 @media(max-width:900px){body.meme-desk main.desk .tokens{grid-template-columns:repeat(3,minmax(0,1fr))}body.meme-desk main.desk .lower{grid-template-columns:1fr 1fr}}
-@media(max-width:580px){body.meme-desk main.desk .tokens{grid-template-columns:repeat(2,minmax(0,1fr))}body.meme-desk main.desk .lower{grid-template-columns:1fr}}
+@media(max-width:580px){body.meme-desk main.desk .tokens{grid-template-columns:1fr}body.meme-desk main.desk .token{min-width:0}body.meme-desk main.desk .chart-host{height:210px;min-height:210px}body.meme-desk main.desk .lower{grid-template-columns:1fr}}
 
 
 /* janobot light graphite / soft daylight theme */
