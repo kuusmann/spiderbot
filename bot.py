@@ -626,6 +626,34 @@ def dynamic_trade_size(equity, daily_pnl):
     fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)
     return round(max(0.0, min(float(equity) * fraction, float(state.get("cash", 0)) - SIM_TX_FEE_EUR)), 2)
 
+def wallet_performance():
+    """Performance from this bot's closed paper-copy trades; never treats Birdeye PnL as verified."""
+    with state_lock:
+        trades = [t for t in state.get("trades", []) if t.get("strategy") == "wallet-copy"]
+        positions = list(state.get("positions", {}).values())
+    stats = {}
+    for trade in trades:
+        metrics = trade.get("entry_metrics") or {}
+        wallet = metrics.get("wallet")
+        if not wallet: continue
+        row = stats.setdefault(wallet, {"wallet":wallet,"label":metrics.get("wallet_label") or wallet[:8]+"…","trades":0,"wins":0,"pnl_eur":0.0})
+        row["trades"] += 1
+        row["wins"] += int(float(trade.get("pnl") or 0) > 0)
+        row["pnl_eur"] += float(trade.get("pnl") or 0)
+    for pos in positions:
+        if pos.get("strategy") != "wallet-copy": continue
+        wallet = pos.get("copy_wallet")
+        if not wallet: continue
+        row = stats.setdefault(wallet, {"wallet":wallet,"label":pos.get("copy_wallet_label") or wallet[:8]+"…","trades":0,"wins":0,"pnl_eur":0.0})
+        row["open_positions"] = row.get("open_positions",0) + 1
+    result = []
+    for row in stats.values():
+        row["win_rate_pct"] = round(100 * row["wins"] / row["trades"], 1) if row["trades"] else None
+        row["score"] = round(max(0,min(100, 50 + row["win_rate_pct"]*0.35 + max(-20,min(20,row["pnl_eur"]))*0.75)),1) if row["trades"] else None
+        row["open_positions"] = row.get("open_positions",0)
+        result.append(row)
+    return sorted(result,key=lambda x:(x.get("score") if x.get("score") is not None else -1,x["pnl_eur"]),reverse=True)
+
 def apply_wallet_copy_signals(safe_candidates, pairs):
     """Paper-copy only fresh swaps from tracked wallets, gated by existing token safety checks."""
     now=time.time()
@@ -650,6 +678,20 @@ def apply_wallet_copy_signals(safe_candidates, pairs):
         if side=="BUY":
             candidate=candidates.get(mint)
             if not candidate:
+                continue
+            # Require either independent wallet consensus or a proven wallet track record.
+            recent = []
+            for other in pending:
+                if other.get("side") != "BUY" or other.get("mint") != mint: continue
+                try:
+                    if now-datetime.fromisoformat(other.get("time","").replace("Z","+00:00")).timestamp() <= 180:
+                        recent.append(other.get("wallet"))
+                except Exception:
+                    pass
+            consensus = len({w for w in recent if w}) >= 2
+            performance = next((w for w in wallet_performance() if w.get("wallet") == wallet), None)
+            proven = bool(performance and performance.get("trades",0) >= 3 and performance.get("win_rate_pct",0) >= 60 and performance.get("pnl_eur",0) > 0)
+            if not (consensus or proven):
                 continue
             if paused or state.get("session_halted") or mint in state["positions"] or len(state["positions"])>=MAX_POSITIONS or state["daily_count"]>=MAX_TRADES_PER_DAY:
                 consumed.add(sig); changed=True; continue
@@ -1106,7 +1148,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"scalp TP +{SCALP_TAKE_PROFIT*100:.0f}% / SL {SCALP_STOP_LOSS*100:.0f}% / time stop {TIME_STOP_SECONDS//60}m\n"
         f"runner: iga {RUNNER_EVERY_NTH_ENTRY}. sisenemine, pool +{RUNNER_HALF_TP*100:.0f}%, trail {RUNNER_TRAIL_GIVEBACK*100:.0f}%\n"
         f"päeva PnL: {daily_pnl_unlocked():+.2f} € | sessioon: {'PEATATUD: '+state.get('session_halt_reason','') if state.get('session_halted') else 'aktiivne'}\n"
-        f"suurus: 7.5% equityst | päevane kaotuspiir: -€{abs(DAILY_STOP_LOSS_EUR):.0f} | kasumisiht: +€{DAILY_TARGET_EUR:.0f}\n"
+        f"suurus: {POSITION_RISK_PCT*100:.1f}% equityst | päevane kaotuspiir: -€{abs(DAILY_STOP_LOSS_EUR):.0f} | kasumisiht: +€{DAILY_TARGET_EUR:.0f}\n"
         f"simulatsioon: {SIM_SLIPPAGE_PCT*100:.1f}% slippage/külg, {SIM_LATENCY_MS}ms, {SIM_FAILED_TX_RATE*100:.0f}% fail\n"
         f"paarid: {last_pair_count} | signaalid: {last_candidate_count}\n"
         f"viimane skann: {last_scan}\nskanneri viga: {last_error or 'puudub'}\npäris tehingud: väljas")
@@ -1238,7 +1280,7 @@ def live_data():
         pos_value = sum(p["quantity"]*p.get("last_price",p["entry_price"]) for p in state["positions"].values())
         payload = {"cash":state["cash"],"positions_value":pos_value,"total":state["cash"]+pos_value,
             "realized_pnl":sum(t["pnl"] for t in state["trades"]),"positions":positions,
-            "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],
+            "trades":state["trades"][-10:],"signals":state.get("signal_log",[])[-100:],"wallet_performance":wallet_performance(),
             "candidates":last_candidates,"wallet_tracker":wallet_payload,"events":events[-20:],"agents":[dict(a) for a in agents.values()],"agent_history":agent_history[-24:],
             "last_scan":last_scan,"last_error":last_error,"pair_count":last_pair_count,
             "signal_count":last_candidate_count,"discovery":dict(discovery_stats),"rugcheck":dict(rugcheck_stats),"paused":paused,"mode":"PAPER DEMO","persistence":{"ok":persistence_ok,"file":str(STATE_FILE),"error":persistence_error},"settings":{"strategy":"FULL SEND PAPER","starting_balance":STARTING_BALANCE,"position_risk_pct":POSITION_RISK_PCT*100,"max_positions":MAX_POSITIONS,"scalp_take_profit_pct":SCALP_TAKE_PROFIT*100,"scalp_stop_loss_pct":SCALP_STOP_LOSS*100,"time_stop_seconds":TIME_STOP_SECONDS,"runner_every_nth_entry":RUNNER_EVERY_NTH_ENTRY,"runner_half_take_profit_pct":RUNNER_HALF_TP*100,"runner_trailing_pct":RUNNER_TRAIL_GIVEBACK*100,"daily_loss_limit_eur":DAILY_STOP_LOSS_EUR,"reduce_size_at_profit_eur":REDUCE_SIZE_AT_PROFIT_EUR,"daily_profit_target_eur":DAILY_TARGET_EUR,"daily_pnl_eur":daily_pnl_unlocked(),"session_halted":state.get("session_halted",False),"session_halt_reason":state.get("session_halt_reason",""),"simulated_slippage_pct_per_side":SIM_SLIPPAGE_PCT*100,"simulated_latency_ms":SIM_LATENCY_MS,"simulated_failed_tx_rate_pct":SIM_FAILED_TX_RATE*100,"min_market_cap_usd":MIN_MARKET_CAP_USD,"max_market_cap_usd":MAX_MARKET_CAP_USD,"min_liquidity_usd":MIN_LIQUIDITY_USD,"min_pool_age_minutes":MIN_POOL_AGE_MINUTES,"max_pool_age_minutes":MAX_POOL_AGE_MINUTES,"min_volume_multiple":MIN_VOLUME_SPIKE_MULTIPLE,"min_unique_buyer_seller_ratio":MIN_BUYER_SELLER_RATIO,"min_lp_locked_pct":MIN_LP_LOCKED_PCT,"max_top10_holder_pct":MAX_TOP10_HOLDERS_PCT,"max_dev_holder_pct":MAX_DEV_HOLDER_PCT,"max_bundle_cluster_pct":MAX_BUNDLE_CLUSTER_PCT,"max_single_wallet_volume_pct":MAX_SINGLE_WALLET_VOLUME_PCT,"scan_seconds":SCAN_SECONDS,"jupiter_api_configured":bool(JUPITER_API_KEY)}}
