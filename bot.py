@@ -676,7 +676,8 @@ def score_candidate(pair):
 
 def dynamic_trade_size(equity, daily_pnl):
     """Compound measured paper position sizes with a strict total-exposure ceiling."""
-    fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)\n    fraction *= 0.75 if market_regime.get("label") == "BEAR" else 1.0
+    fraction = POSITION_RISK_PCT * (0.5 if daily_pnl >= REDUCE_SIZE_AT_PROFIT_EUR else 1.0)
+    fraction *= 0.75 if market_regime.get("label") == "BEAR" else 1.0
     invested = sum(float(p.get("cost", 0)) for p in state.get("positions", {}).values())
     exposure_room = max(0.0, float(equity) * MAX_PORTFOLIO_EXPOSURE_PCT - invested)
     return round(max(0.0, min(float(equity) * fraction,
@@ -821,7 +822,9 @@ def scan_once():
     update_agent("uljas","working","Otsib Solana migrated/trending pools","Laeb uusi ja trending basseine")
     pairs = discover_candidates()
     now = time.time()
-    market_features = update_market_snapshots(pairs)\n    market_regime.update(market_regime_from_pairs(pairs)); market_regime["updated"]=datetime.now(timezone.utc).isoformat()
+    market_features = update_market_snapshots(pairs)
+    market_regime.update(market_regime_from_pairs(pairs))
+    market_regime["updated"] = datetime.now(timezone.utc).isoformat()
     update_agent("uljas","active","Skaneeris turgu",f"{len(pairs)} paari; {len(discovery_cache.get('addresses',[]))} tokeniaadressi",checks=len(pairs))
 
     local_candidates = []
@@ -942,7 +945,8 @@ def scan_once():
         trade_ratio = int(tx5.get("buys") or 0) / max(int(tx5.get("sells") or 0), 1)
         volume_factor = min(5.0, float((candidate.get("volume") or {}).get("m5") or 0) / 10000.0)
         recovery_factor = max(0.0, float((candidate.get("_momentum") or {}).get("bounce_2m_pct") or 0))
-        candidate["_rank_score"] = round(trade_ratio * (1.0 + volume_factor) * (1.0 + min(recovery_factor, 5.0) / 10.0), 4)\n        candidate["_momentum_score"] = momentum_score(candidate)
+        candidate["_rank_score"] = round(trade_ratio * (1.0 + volume_factor) * (1.0 + min(recovery_factor, 5.0) / 10.0), 4)
+        candidate["_momentum_score"] = momentum_score(candidate)
         candidate["_rugcheck_report"] = report
         safe_candidates.append(candidate)
 
@@ -1129,7 +1133,9 @@ def scan_once():
                     continue
                 equity = float(state["cash"]) + sum(float(p.get("quantity",0))*float(p.get("last_price",p.get("entry_price",0))) for p in state["positions"].values())
                 day_pnl = daily_pnl_unlocked()
-                size = dynamic_trade_size(equity, day_pnl)\n                size=round(size*max(0.5,min(1.25,float(candidate.get("_momentum_score") or 0)/80.0)),2)
+                size = dynamic_trade_size(equity, day_pnl)
+                score_scale = max(0.50, min(1.25, float(candidate.get("_momentum_score") or 0) / 80.0))
+                size = round(size * score_scale, 2)
                 if size <= 1 or size + SIM_TX_FEE_EUR > float(state["cash"]):
                     continue
                 # Paper-only execution uses the observed DEX price plus simulated slippage;
@@ -1153,7 +1159,8 @@ def scan_once():
                     "market_cap":float(candidate.get("marketCap") or candidate.get("fdv") or 0),
                     "sim_slippage_pct":SIM_SLIPPAGE_PCT*100,
                     "entry_metrics":{
-                        "rank_score":candidate.get("_rank_score"),\n                        "momentum_score":candidate.get("_momentum_score"),
+                        "rank_score":candidate.get("_rank_score"),
+                        "momentum_score":candidate.get("_momentum_score"),
                         "volume_multiple":(candidate.get("_momentum") or {}).get("volume_multiple"),
                         "unique_buyers_5m":candidate.get("_unique_buyers_5m"),
                         "unique_sellers_5m":candidate.get("_unique_sellers_5m"),
@@ -1215,7 +1222,8 @@ def scan_once():
             "setup":p.get("_setup","momentum"),
             "buy_sell_ratio":p.get("_buy_sell_ratio",0),
             "volume_multiple":(p.get("_momentum") or {}).get("volume_multiple"),
-            "rank_score":p.get("_rank_score"),\n            "momentum_score":p.get("_momentum_score"),
+            "rank_score":p.get("_rank_score"),
+            "momentum_score":p.get("_momentum_score"),
             "sources":p.get("_discovery_sources",[]),
             "news":p.get("_news_matches",[])
         } for p in shown[:20]]
