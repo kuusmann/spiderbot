@@ -92,7 +92,10 @@ rugcheck_last_request = 0.0
 rugcheck_stats = {"checked": 0, "passed": 0, "blocked": 0, "errors": 0, "status": "starting"}
 chart_cache = {}
 chart_cache_lock = threading.RLock()
-CHART_CACHE_SECONDS = 60
+CHART_CACHE_SECONDS = 180
+chart_request_lock = threading.RLock()
+chart_last_request = 0.0
+chart_rate_limit_until = 0.0
 DEX = "https://api.dexscreener.com"
 paused = False
 last_scan = "not yet"
@@ -1621,7 +1624,7 @@ def news_data():
 
 @web.get("/api/chart/<pool_address>")
 def chart_data(pool_address):
-    """Return real GeckoTerminal OHLCV bars for a Solana DEX pool, cached to respect public limits."""
+    """Serve cached real GeckoTerminal candles with shared rate-limit protection."""
     if not check_auth(request.authorization): return auth_required()
     if not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", pool_address):
         return jsonify({"error":"invalid Solana pool address","candles":[]}), 400
@@ -1631,42 +1634,65 @@ def chart_data(pool_address):
         if cached and now - cached["time"] < CHART_CACHE_SECONDS:
             return jsonify({"candles":cached["candles"],"source":"GeckoTerminal","cached":True,
                             "updated":cached["updated"]})
-    try:
-        url = f"https://api.geckoterminal.com/api/v2/networks/solana/pools/{pool_address}/ohlcv/minute"
-        response = requests.get(url, params={"aggregate":"1","limit":"180","currency":"usd","token":"base"},
-                                headers={"Accept":"application/json;version=20230203",
-                                         "User-Agent":"spiderbot-paper-dashboard/1.0"}, timeout=12)
-        response.raise_for_status()
-        payload = response.json()
-        raw = (((payload.get("data") or {}).get("attributes") or {}).get("ohlcv_list") or [])
-        candles = []
-        seen = set()
-        for row in raw:
-            if not isinstance(row, list) or len(row) < 6:
-                continue
-            try:
-                stamp = int(row[0])
-                candle = {"time":stamp,"open":float(row[1]),"high":float(row[2]),
-                          "low":float(row[3]),"close":float(row[4]),"volume":float(row[5])}
-                if stamp > 0 and all(candle[k] > 0 for k in ("open","high","low","close")) and stamp not in seen:
-                    seen.add(stamp)
-                    candles.append(candle)
-            except (TypeError,ValueError,OverflowError):
-                continue
-        candles.sort(key=lambda x:x["time"])
-        if not candles:
-            raise ValueError("GeckoTerminal returned no OHLCV candles for this pool")
-        updated = datetime.now(timezone.utc).isoformat()
-        with chart_cache_lock:
-            chart_cache[pool_address] = {"time":now,"candles":candles,"updated":updated}
-        return jsonify({"candles":candles,"source":"GeckoTerminal","cached":False,"updated":updated})
-    except Exception as exc:
-        with chart_cache_lock:
-            stale = chart_cache.get(pool_address)
-        if stale:
-            return jsonify({"candles":stale["candles"],"source":"GeckoTerminal","cached":True,
-                            "stale":True,"warning":str(exc)[:140],"updated":stale["updated"]})
-        return jsonify({"error":str(exc)[:180],"candles":[],"source":"GeckoTerminal"}), 502
+    global chart_last_request, chart_rate_limit_until
+    with chart_request_lock:
+        now = time.time()
+        if now < chart_rate_limit_until:
+            with chart_cache_lock:
+                stale = chart_cache.get(pool_address)
+            if stale:
+                return jsonify({"candles":stale["candles"],"source":"GeckoTerminal","cached":True,
+                                "stale":True,"warning":"GeckoTerminal rate-limit cooldown","updated":stale["updated"]})
+            return jsonify({"error":"GeckoTerminal rate-limit cooldown; retry shortly","candles":[]}), 503
+        # Serialize chart fetches and add spacing to avoid bursts from several cards.
+        wait = 1.5 - (now - chart_last_request)
+        if wait > 0:
+            time.sleep(wait)
+        chart_last_request = time.time()
+        try:
+            url = f"https://api.geckoterminal.com/api/v2/networks/solana/pools/{pool_address}/ohlcv/minute"
+            response = requests.get(url, params={"aggregate":"1","limit":"180","currency":"usd","token":"base"},
+                                   headers={"Accept":"application/json;version=20230203",
+                                            "User-Agent":"janobot-dashboard/1.0"}, timeout=12)
+            if response.status_code == 429:
+                chart_rate_limit_until = time.time() + 120
+                with chart_cache_lock:
+                    stale = chart_cache.get(pool_address)
+                if stale:
+                    return jsonify({"candles":stale["candles"],"source":"GeckoTerminal","cached":True,
+                                    "stale":True,"warning":"GeckoTerminal rate limited; using cached candles","updated":stale["updated"]})
+                return jsonify({"error":"GeckoTerminal rate-limited requests; retry in about 2 minutes","candles":[]}), 503
+            response.raise_for_status()
+            payload = response.json()
+            raw = (((payload.get("data") or {}).get("attributes") or {}).get("ohlcv_list") or [])
+            candles = []
+            seen = set()
+            for row in raw:
+                if not isinstance(row, list) or len(row) < 6:
+                    continue
+                try:
+                    stamp = int(row[0])
+                    candle = {"time":stamp,"open":float(row[1]),"high":float(row[2]),
+                              "low":float(row[3]),"close":float(row[4]),"volume":float(row[5])}
+                    if stamp > 0 and all(candle[k] > 0 for k in ("open","high","low","close")) and stamp not in seen:
+                        seen.add(stamp)
+                        candles.append(candle)
+                except (TypeError,ValueError,OverflowError):
+                    continue
+            candles.sort(key=lambda x:x["time"])
+            if not candles:
+                raise ValueError("GeckoTerminal returned no OHLCV candles for this pool")
+            updated = datetime.now(timezone.utc).isoformat()
+            with chart_cache_lock:
+                chart_cache[pool_address] = {"time":time.time(),"candles":candles,"updated":updated}
+            return jsonify({"candles":candles,"source":"GeckoTerminal","cached":False,"updated":updated})
+        except Exception as exc:
+            with chart_cache_lock:
+                stale = chart_cache.get(pool_address)
+            if stale:
+                return jsonify({"candles":stale["candles"],"source":"GeckoTerminal","cached":True,
+                                "stale":True,"warning":str(exc)[:140],"updated":stale["updated"]})
+            return jsonify({"error":str(exc)[:180],"candles":[],"source":"GeckoTerminal"}), 502
 
 @web.get("/api/trades.csv")
 def trades_csv():
