@@ -1101,6 +1101,17 @@ def scan_once():
             raise
 
         shown = safe_candidates or local_candidates
+        # Keep live price history for every displayed market, not only open paper positions.
+        # This powers the dashboard's real-time candlestick charts.
+        for market in shown[:20]:
+            market_address = (market.get("baseToken") or {}).get("address")
+            market_price = float(market.get("priceUsd") or 0)
+            if market_address and market_price > 0:
+                history = state.setdefault("price_history", {}).setdefault(market_address, [])
+                if not history or float(history[-1].get("t") or 0) < now:
+                    history.append({"t": now, "p": market_price})
+                state["price_history"][market_address] = history[-420:]
+
         last_candidates = [{
             "symbol":(p.get("baseToken") or {}).get("symbol","?"),
             "name":(p.get("baseToken") or {}).get("name",""),
